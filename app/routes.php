@@ -85,6 +85,7 @@ $router->get('/team', 'TeamController@index', ['auth']);
 $router->post('/team/invite', 'TeamController@invite', ['auth', 'admin']);
 $router->post('/team/{id}/role', 'TeamController@role', ['auth', 'admin']);
 $router->post('/team/{id}/status', 'TeamController@status', ['auth', 'admin']);
+$router->post('/team/{id}/delete', 'TeamController@destroy', ['auth', 'admin']);
 $router->post('/team/{id}/resend', 'TeamController@resend', ['auth', 'admin']);
 $router->post('/team/company', 'TeamController@company', ['auth', 'admin']);
 

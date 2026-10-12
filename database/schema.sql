@@ -33,6 +33,7 @@ CREATE TABLE users (
   status             ENUM('active','invited','disabled') NOT NULL DEFAULT 'active',
   email_verified_at  DATETIME NULL,
   last_login_at      DATETIME NULL,
+  deleted_at         DATETIME NULL,                   -- set when an admin removes the member (row kept for history)
   invited_by         INT UNSIGNED NULL,
   created_at         DATETIME NOT NULL,
   updated_at         DATETIME NULL,
@@ -120,6 +121,7 @@ CREATE TABLE projects (
   name         VARCHAR(120) NOT NULL,
   description  VARCHAR(500) NULL,
   status       ENUM('active','archived') NOT NULL DEFAULT 'active',
+  priority     ENUM('high','medium','low') NOT NULL DEFAULT 'medium',
   created_by   INT UNSIGNED NULL,
   created_at   DATETIME NOT NULL,
   updated_at   DATETIME NULL,

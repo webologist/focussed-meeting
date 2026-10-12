@@ -1,7 +1,8 @@
 <?php
 use App\Controllers\AccountController;
 $admins = array_filter($members, fn($m) => $m['role'] === 'admin' && $m['status'] === 'active');
-$statusPill = ['active' => '', 'invited' => '<span class="pill s-pending">Invited</span>', 'disabled' => '<span class="pill s-neutral">Access off</span>'];
+$statusPill = ['active' => '', 'invited' => '<span class="pill s-pending">Invited</span>', 'disabled' => '<span class="pill p-high">Blocked</span>'];
+$takers = array_filter($members, fn($m) => $m['status'] === 'active');
 ?>
 <div class="head"><div><div class="eyebrow">Settings</div><h1>Team &amp; roles</h1><p class="muted"><?= e($org['name']) ?> · <?= plural(count(array_filter($members, fn($m) => $m['status'] !== 'disabled')), 'member') ?></p></div></div>
 <p class="role-note"><b>Admin</b> assigns tasks to anyone, invites new people, sends reminders to others, manages integrations and roles, and sees reports. <b>Participant</b> plans meetings for their projects, sees their own meetings and tasks, writes minutes, asks the host to add discussion points, hands tasks to teammates, and sets personal reminders. The <b>host</b> (organiser) of a meeting manages it, prints its documents and approves completed action items.</p>
@@ -33,7 +34,14 @@ $statusPill = ['active' => '', 'invited' => '<span class="pill s-pending">Invite
         <?php if ($m['status'] === 'invited'): ?><form method="post" action="<?= e(path('team/' . $m['id'] . '/resend')) ?>" class="inline"><?= csrf_field() ?><button class="btn sm ghost" type="submit">Resend invite</button></form><?php endif; ?>
         <?php if (!$me): ?><form method="post" action="<?= e(path('team/' . $m['id'] . '/status')) ?>" class="inline"><?= csrf_field() ?>
           <input type="hidden" name="status" value="<?= $m['status'] === 'disabled' ? 'active' : 'disabled' ?>">
-          <button class="btn sm ghost" type="submit" <?= $m['status'] === 'disabled' ? '' : 'data-confirm="Turn off access for ' . e($m['name']) . '? Their items stay in place."' ?>><?= $m['status'] === 'disabled' ? 'Restore access' : 'Turn off access' ?></button></form><?php endif; ?>
+          <button class="btn sm ghost" type="submit" <?= $m['status'] === 'disabled' ? '' : 'data-confirm="Block ' . e($m['name']) . '? They won’t be able to sign in. Their items stay in place."' ?>><?= $m['status'] === 'disabled' ? 'Unblock' : 'Block' ?></button></form>
+          <details class="menu" style="display:inline-block"><summary class="btn sm ghost" style="color:var(--danger,#b42318)" aria-label="Delete <?= e($m['name']) ?>">Delete</summary>
+            <form method="post" action="<?= e(path('team/' . $m['id'] . '/delete')) ?>" class="menu-pop stack" style="text-align:left;white-space:normal;min-width:260px"><?= csrf_field() ?>
+              <div><b>Delete <?= e($m['name']) ?>?</b><div class="sub">They lose access for good. Past meetings, minutes and comments keep their name.</div></div>
+              <?php if ((int)$m['open_items']): ?><label class="f">Move their <?= plural((int)$m['open_items'], 'open task') ?> to
+                <select name="reassign_to" required><option value="">Choose a member…</option><?php foreach ($takers as $t): if ((int)$t['id'] === (int)$m['id']) continue; ?><option value="<?= (int)$t['id'] ?>" <?= (int)$t['id'] === uid() ? 'selected' : '' ?>><?= e($t['name']) ?></option><?php endforeach; ?></select></label><?php endif; ?>
+              <div class="row"><button class="btn sm primary" type="submit" data-confirm="Permanently remove <?= e($m['name']) ?> from the team?">Delete member</button></div>
+            </form></details><?php endif; ?>
       </td><?php endif; ?>
     </tr>
   <?php endforeach; ?>

@@ -122,7 +122,7 @@ final class OwnerController
     {
         $org = self::org($id);
         $members = DB::all("SELECT u.*, (SELECT COUNT(*) FROM actions a WHERE a.owner_id = u.id AND a.status <> 'done') AS open_items
-                              FROM users u WHERE u.org_id = ? ORDER BY u.role = 'admin' DESC, u.status = 'disabled', u.name", [$id]);
+                              FROM users u WHERE u.org_id = ? AND u.deleted_at IS NULL ORDER BY u.role = 'admin' DESC, u.status = 'disabled', u.name", [$id]);
         $counts = [
             'meetings'  => (int)DB::value("SELECT COUNT(*) FROM meetings WHERE org_id = ? AND status <> 'cancelled'", [$id]),
             'completed' => (int)DB::value("SELECT COUNT(*) FROM meetings WHERE org_id = ? AND status = 'completed'", [$id]),

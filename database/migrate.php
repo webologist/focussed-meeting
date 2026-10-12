@@ -61,6 +61,8 @@ $columns = [
     ['actions', 'project_id', 'INT UNSIGNED NULL AFTER org_id'],
     ['actions', 'submitted_at', 'DATETIME NULL AFTER status'],
     ['actions', 'approved_by', 'INT UNSIGNED NULL AFTER submitted_at'],
+    ['users', 'deleted_at', 'DATETIME NULL AFTER last_login_at'],
+    ['projects', 'priority', "ENUM('high','medium','low') NOT NULL DEFAULT 'medium' AFTER status"],
 ];
 foreach ($columns as [$t, $c, $def]) {
     if (!column_exists($t, $c)) $run("ALTER TABLE `$t` ADD COLUMN `$c` $def");

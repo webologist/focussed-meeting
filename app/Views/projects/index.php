@@ -6,7 +6,7 @@ $row = function (array $p): string {
     $archivedP = $p['status'] === 'archived';
     ob_start(); ?>
     <tr class="item" style="<?= $archivedP ? 'opacity:.6' : '' ?>">
-      <td style="min-width:220px"><div class="title"><?= e($p['name']) ?></div>
+      <td style="min-width:220px"><div class="title"><?= e($p['name']) ?> <?= pri_pill($p['priority'] ?? 'medium') ?></div>
         <?php if ($p['description']): ?><div class="sub"><?= e($p['description']) ?></div><?php endif; ?>
         <div class="sub">Started by <?= e($p['creator_name'] ?? '—') ?> · <?= e(fmt_local($p['created_at'], 'j M Y')) ?></div></td>
       <td class="num mono"><a class="linkish" href="<?= e(path('meetings', ['project' => $p['id'], 'tab' => (int)$p['upcoming'] ? null : 'past'])) ?>"><?= (int)$p['meetings'] ?></a><?php if ($p['next_meeting']): ?><div class="sub">next <?= e(fmt_date($p['next_meeting'], false)) ?></div><?php endif; ?></td>
@@ -19,6 +19,7 @@ $row = function (array $p): string {
             <form method="post" action="<?= e(path('projects/' . $p['id'])) ?>" class="menu-pop stack"><?= csrf_field() ?>
               <label class="f">Name<input type="text" name="name" value="<?= e($p['name']) ?>" required maxlength="120"></label>
               <label class="f">Description<input type="text" name="description" value="<?= e($p['description']) ?>" maxlength="500"></label>
+              <label class="f">Priority<select name="priority"><?php foreach (['high' => 'High', 'medium' => 'Medium', 'low' => 'Low'] as $k => $l): ?><option value="<?= $k ?>" <?= ($p['priority'] ?? 'medium') === $k ? 'selected' : '' ?>><?= $l ?></option><?php endforeach; ?></select></label>
               <div class="row"><button class="btn sm primary" type="submit">Save</button></div>
             </form></details>
           <form method="post" action="<?= e(path('projects/' . $p['id'])) ?>" class="inline"><?= csrf_field() ?><input type="hidden" name="status" value="<?= $archivedP ? 'active' : 'archived' ?>">
@@ -35,6 +36,7 @@ $row = function (array $p): string {
   <div class="qa-bar proj-bar" style="border-radius:12px;border-bottom:0">
     <input class="qa-text" type="text" name="name" required maxlength="120" placeholder="New project name, e.g. Mobile App v2" aria-label="Project name">
     <input type="text" name="description" maxlength="500" placeholder="Short description (optional)" aria-label="Description">
+    <select name="priority" aria-label="Priority" title="Priority"><option value="high">High priority</option><option value="medium" selected>Medium priority</option><option value="low">Low priority</option></select>
     <button class="btn primary" type="submit"><?= icon('plus', 14) ?>Create project</button>
   </div></form>
 

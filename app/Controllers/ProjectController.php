@@ -17,7 +17,7 @@ final class ProjectController
                 (SELECT COUNT(*) FROM actions a WHERE a.project_id = p.id AND a.status <> 'done') AS open_tasks,
                 (SELECT COUNT(*) FROM actions a WHERE a.project_id = p.id AND a.status = 'done') AS done_tasks,
                 (SELECT MIN(m.meeting_date) FROM meetings m WHERE m.project_id = p.id AND m.status = 'scheduled' AND m.meeting_date >= :today2) AS next_meeting
-              FROM projects p LEFT JOIN users u ON u.id = p.created_by WHERE p.org_id = :org ORDER BY p.status, p.name",
+              FROM projects p LEFT JOIN users u ON u.id = p.created_by WHERE p.org_id = :org ORDER BY p.status, FIELD(p.priority,'high','medium','low'), p.name",
             ['org' => org_id(), 'today' => today(), 'today2' => today()]);
         echo view('projects/index', ['projects' => $projects, 'title' => 'Projects']);
     }
@@ -27,7 +27,7 @@ final class ProjectController
         $name = mb_substr((string)input('name'), 0, 120);
         if (mb_strlen($name) < 2) { flash('error', 'Give the project a name.'); redirect('projects'); }
         if (DB::value('SELECT 1 FROM projects WHERE org_id = ? AND name = ?', [org_id(), $name])) { flash('error', 'A project with that name already exists.'); redirect('projects'); }
-        $id = DB::insert('projects', ['org_id' => org_id(), 'name' => $name, 'description' => mb_substr((string)input('description'), 0, 500) ?: null, 'created_by' => uid(), 'created_at' => now_utc()]);
+        $id = DB::insert('projects', ['org_id' => org_id(), 'name' => $name, 'description' => mb_substr((string)input('description'), 0, 500) ?: null, 'priority' => self::priority('medium'), 'created_by' => uid(), 'created_at' => now_utc()]);
         Audit::log('project.created', 'project', $id);
         flash('success', 'Project created. Pick it when you plan a meeting or add a task.');
         redirect(input('then') === 'plan' ? 'meetings?plan=1&project_id=' . $id : 'projects');
@@ -40,6 +40,7 @@ final class ProjectController
         if (!is_admin() && (int)$p['created_by'] !== uid()) abort(403, 'Only admins or the person who created the project can change it.');
         $data = ['updated_at' => now_utc()];
         if (in_array(input('status'), ['active', 'archived'], true)) $data['status'] = input('status');
+        if (input('priority') !== null && input('priority') !== '') $data['priority'] = self::priority($p['priority']);
         if (($name = mb_substr((string)input('name'), 0, 120)) !== '') {
             if (DB::value('SELECT 1 FROM projects WHERE org_id = ? AND name = ? AND id <> ?', [org_id(), $name, $id])) { flash('error', 'A project with that name already exists.'); redirect('projects'); }
             $data['name'] = $name;
@@ -49,5 +50,10 @@ final class ProjectController
         Audit::log('project.updated', 'project', $id, array_diff_key($data, ['updated_at' => 1]));
         flash('success', isset($data['status']) ? ($data['status'] === 'archived' ? 'Project archived.' : 'Project restored.') : 'Project saved.');
         redirect('projects');
+    }
+
+    private static function priority(string $fallback): string
+    {
+        return in_array(input('priority'), ['high', 'medium', 'low'], true) ? (string)input('priority') : $fallback;
     }
 }

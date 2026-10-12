@@ -560,7 +560,7 @@ ol.steps-list{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:
 .copy-row input{flex:1;min-width:0;font-family:var(--mono);font-size:.8rem}
 
 /* ---- Projects ---- */
-.qa-bar.proj-bar{grid-template-columns:minmax(0,1fr) minmax(0,1.3fr) auto}
+.qa-bar.proj-bar{grid-template-columns:minmax(0,1fr) minmax(0,1.3fr) 150px auto}
 .qa-bar.proj-bar .qa-text{grid-column:auto;grid-row:auto}
 .qa-bar:has(#qa-proj){grid-template-columns:repeat(5,minmax(0,1fr)) 34px}
 .qa-bar:has(#qa-proj) .qa-text{grid-column:1/6}
