@@ -17,11 +17,25 @@
   .paper ol.disc{padding-left:22px;margin:0;display:flex;flex-direction:column;gap:10px}
   .paper ol.disc p{margin:3px 0 0;color:#4b5563;white-space:pre-wrap}
   .paper .pill{border:1px solid #d1d5db}
+  .paper table.register,.paper table.att{width:100%;border-collapse:collapse}
+  .paper table.register th,.paper table.att th{width:auto;text-transform:uppercase;letter-spacing:.06em;font-size:.68rem;padding:6px 8px;border-bottom:1.5px solid #111;text-align:left}
+  .paper table.register td,.paper table.att td{padding:8px;border-bottom:1px solid #d1d5db;vertical-align:top}
+  .paper table.register td.sig{width:28%;height:34px}
+  .paper .letter-note{border-left:3px solid #1F6F78;padding:4px 0 4px 12px;white-space:pre-wrap;color:#1f2937}
+  .paper .signs{display:flex;justify-content:space-between;gap:40px;margin-top:28px}
+  .paper .signs.one{justify-content:flex-end}
+  .paper .signs>div{flex:0 1 240px;font-size:.85rem;color:#374151}
+  .paper .signs span{display:block;border-bottom:1px solid #111;height:36px;margin-bottom:6px}
+  .paper p{margin:0}
+  .paper.letter{gap:16px}
+  .paper + .paper{margin-top:16px}
   @media print{
     body{background:#fff}
     .print-bar{display:none}
     .paper-page{padding:0}
     .paper{box-shadow:none;padding:0;max-width:none}
+    .paper + .paper{margin-top:0}
+    .page-break{break-before:page}
     @page{size:A4;margin:16mm}
   }
 </style>

@@ -4,7 +4,7 @@ $admins = array_filter($members, fn($m) => $m['role'] === 'admin' && $m['status'
 $statusPill = ['active' => '', 'invited' => '<span class="pill s-pending">Invited</span>', 'disabled' => '<span class="pill s-neutral">Access off</span>'];
 ?>
 <div class="head"><div><div class="eyebrow">Settings</div><h1>Team &amp; roles</h1><p class="muted"><?= e($org['name']) ?> · <?= plural(count(array_filter($members, fn($m) => $m['status'] !== 'disabled')), 'member') ?></p></div></div>
-<p class="role-note"><b>Admin</b> creates meetings, assigns tasks, sends reminders to others, manages integrations and roles, and sees reports. <b>Participant</b> sees their own meetings and tasks, writes minutes, adds notes and images, and sets personal reminders. The organiser of a meeting can manage that meeting.</p>
+<p class="role-note"><b>Admin</b> assigns tasks to anyone, invites new people, sends reminders to others, manages integrations and roles, and sees reports. <b>Participant</b> plans meetings for their projects, sees their own meetings and tasks, writes minutes, asks the host to add discussion points, hands tasks to teammates, and sets personal reminders. The <b>host</b> (organiser) of a meeting manages it, prints its documents and approves completed action items.</p>
 
 <?php if (is_admin()): ?>
 <form class="panel" method="post" action="<?= e(path('team/invite')) ?>"><?= csrf_field() ?>

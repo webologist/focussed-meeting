@@ -25,7 +25,8 @@ final class ActionController
         if (!$owner || $owner['status'] === 'disabled') { flash('error', 'Choose someone from your team.'); back(); }
         $dep = (int)input('depends_on', 0);
         if ($dep) Access::action($dep); // ensure visible & same company
-        Actions::create(['title' => $title, 'owner_id' => $ownerId, 'owner_name' => $owner['name'], 'deadline' => $deadline, 'priority' => $priority, 'depends_on' => $dep ?: null]);
+        $project = Access::project((int)input('project_id', 0));
+        Actions::create(['title' => $title, 'owner_id' => $ownerId, 'owner_name' => $owner['name'], 'deadline' => $deadline, 'priority' => $priority, 'depends_on' => $dep ?: null, 'project_id' => $project['id'] ?? null]);
         flash('success', $ownerId === uid() ? 'Added to your to-do list.' : 'Task assigned to ' . $owner['name'] . '. They’ve been notified.');
         redirect($ownerId === uid() ? 'dashboard' : 'dashboard?tab=assigned');
     }
@@ -33,45 +34,68 @@ final class ActionController
     public function tracker(): void
     {
         [$scope, $params] = Access::actionScope('a');
-        $quick = in_array($_GET['q'] ?? '', ['open', 'overdue', 'high', 'week', 'all'], true) ? $_GET['q'] : 'open';
+        $quick = in_array($_GET['q'] ?? '', ['open', 'overdue', 'high', 'week', 'review', 'done', 'all'], true) ? $_GET['q'] : 'open';
         $owner = (int)($_GET['owner'] ?? 0);
         $pri = in_array($_GET['priority'] ?? '', ['high', 'medium', 'low'], true) ? $_GET['priority'] : '';
+        $project = (int)($_GET['project'] ?? 0);
+        $sort = in_array($_GET['sort'] ?? '', ['deadline', 'assignee', 'status', 'priority', 'title'], true) ? $_GET['sort'] : 'deadline';
+        $dir = ($_GET['dir'] ?? '') === 'desc' ? 'desc' : 'asc';
         $today = today();
 
-        $sql = "SELECT a.*, u.name AS owner_name, c.name AS creator_name, m.title AS meeting_title, m.meeting_date,
+        $sql = "SELECT a.*, u.name AS owner_name, c.name AS creator_name, m.title AS meeting_title, m.meeting_date, m.organizer_id, p.name AS project_name,
+                       COALESCE(m.organizer_id, a.created_by) AS approver_id, ap.name AS approver_name,
                        (SELECT COUNT(*) FROM action_notes n WHERE n.action_id = a.id) AS notes_count,
                        (SELECT COUNT(*) FROM note_images ni JOIN action_notes n2 ON n2.id = ni.note_id WHERE n2.action_id = a.id) AS images_count,
                        (SELECT COUNT(*) FROM action_comments k WHERE k.action_id = a.id AND k.is_system = 0) AS comments_count,
                        (SELECT COUNT(*) FROM action_dependencies d JOIN actions b ON b.id = d.depends_on_id WHERE d.action_id = a.id AND b.status <> 'done') AS blockers
-                  FROM actions a JOIN users u ON u.id = a.owner_id JOIN users c ON c.id = a.created_by LEFT JOIN meetings m ON m.id = a.meeting_id
+                  FROM actions a JOIN users u ON u.id = a.owner_id JOIN users c ON c.id = a.created_by
+                  LEFT JOIN meetings m ON m.id = a.meeting_id LEFT JOIN projects p ON p.id = a.project_id
+                  JOIN users ap ON ap.id = COALESCE(m.organizer_id, a.created_by)
                  WHERE $scope";
         $all = DB::all($sql, $params);
-        $open = array_values(array_filter($all, fn($a) => $a['status'] === 'open'));
+        $open = array_values(array_filter($all, fn($a) => $a['status'] !== 'done'));
+        $inWeek = fn($a) => Actions::isActive($a) && Actions::effDeadline($a) >= $today && days_between(Actions::effDeadline($a), $today) <= 7;
+        $myReview = fn($a) => $a['status'] === 'review' && (is_admin() || (int)$a['approver_id'] === uid());
         $counts = [
             'open' => count($open),
-            'overdue' => count(array_filter($open, fn($a) => Actions::effDeadline($a) < $today)),
-            'high' => count(array_filter($open, fn($a) => $a['priority'] === 'high')),
-            'week' => count(array_filter($open, fn($a) => Actions::effDeadline($a) >= $today && days_between(Actions::effDeadline($a), $today) <= 7)),
+            'overdue' => count(array_filter($open, [Actions::class, 'isOverdue'])),
+            'review' => count(array_filter($open, $myReview)),
+            'week' => count(array_filter($open, $inWeek)),
+            'all' => count($all),
         ];
         $list = match ($quick) {
             'all' => $all,
-            'overdue' => array_filter($open, fn($a) => Actions::effDeadline($a) < $today),
+            'done' => array_filter($all, fn($a) => $a['status'] === 'done'),
+            'overdue' => array_filter($open, [Actions::class, 'isOverdue']),
             'high' => array_filter($open, fn($a) => $a['priority'] === 'high'),
-            'week' => array_filter($open, fn($a) => Actions::effDeadline($a) >= $today && days_between(Actions::effDeadline($a), $today) <= 7),
+            'week' => array_filter($open, $inWeek),
+            'review' => array_filter($open, $myReview),
             default => $open,
         };
         if ($owner) $list = array_filter($list, fn($a) => (int)$a['owner_id'] === $owner);
         if ($pri) $list = array_filter($list, fn($a) => $a['priority'] === $pri);
-        usort($list, function ($x, $y) {
-            $p = ['high' => 0, 'medium' => 1, 'low' => 2];
-            return [$x['status'] === 'done', $x['status'] === 'done' ? -strtotime((string)$x['done_at']) : 0, Actions::effDeadline($x), $p[$x['priority']]]
-               <=> [$y['status'] === 'done', $y['status'] === 'done' ? -strtotime((string)$y['done_at']) : 0, Actions::effDeadline($y), $p[$y['priority']]];
+        if ($project) $list = array_filter($list, fn($a) => (int)$a['project_id'] === $project);
+        $pOrder = ['high' => 0, 'medium' => 1, 'low' => 2];
+        $sOrder = ['open' => 0, 'progress' => 1, 'review' => 2, 'done' => 3];
+        usort($list, function ($x, $y) use ($sort, $dir, $pOrder, $sOrder) {
+            $key = fn($a) => match ($sort) {
+                'assignee' => [mb_strtolower($a['owner_name'])],
+                'status' => [$sOrder[$a['status']]],
+                'priority' => [$pOrder[$a['priority']]],
+                'title' => [mb_strtolower($a['title'])],
+                default => [$a['status'] === 'done' ? 1 : 0, Actions::effDeadline($a)],
+            };
+            $c = $key($x) <=> $key($y);
+            if ($dir === 'desc') $c = -$c;
+            // Ties: earliest deadline first, then highest priority
+            return $c ?: ([Actions::effDeadline($x), $pOrder[$x['priority']]] <=> [Actions::effDeadline($y), $pOrder[$y['priority']]]);
         });
         $owners = [];
         foreach ($all as $a) $owners[(int)$a['owner_id']] = $a['owner_name'];
         asort($owners);
-        $lateNudge = count(array_filter($open, fn($a) => Actions::effDeadline($a) < $today && Access::canNudge($a)));
-        echo view('actions/tracker', compact('list', 'counts', 'quick', 'owner', 'pri', 'owners', 'lateNudge') + ['title' => 'Action tracker']);
+        $projects = Access::projects(true);
+        $lateNudge = count(array_filter($open, fn($a) => Actions::isOverdue($a) && Access::canNudge($a)));
+        echo view('actions/tracker', compact('list', 'counts', 'quick', 'owner', 'pri', 'project', 'projects', 'sort', 'dir', 'owners', 'lateNudge') + ['title' => 'All tasks']);
     }
 
     public function show(int $id): void
@@ -92,19 +116,70 @@ final class ActionController
         $blocks = Actions::dependents($id);
         [$scope, $sp] = Access::actionScope('x');
         $depIds = array_column($deps, 'id');
-        $cands = array_filter(DB::all("SELECT x.id, x.title, u.name AS owner_name FROM actions x JOIN users u ON u.id = x.owner_id WHERE x.status = 'open' AND x.id <> :self AND $scope ORDER BY x.title LIMIT 300", ['self' => $id] + $sp),
+        $cands = array_filter(DB::all("SELECT x.id, x.title, u.name AS owner_name FROM actions x JOIN users u ON u.id = x.owner_id WHERE x.status <> 'done' AND x.id <> :self AND $scope ORDER BY x.title LIMIT 300", ['self' => $id] + $sp),
             fn($c) => !in_array($c['id'], $depIds) && !Actions::createsCycle($id, (int)$c['id']));
-        $from = in_array($_GET['from'] ?? '', ['dashboard', 'tracker', 'meetings'], true) ? $_GET['from'] : 'tracker';
-        echo view('actions/show', compact('a', 'meeting', 'point', 'notes', 'images', 'comments', 'deps', 'blocks', 'cands', 'from') + ['title' => $a['title']]);
+        $from = in_array($_GET['from'] ?? '', ['dashboard', 'tracker', 'meetings', 'projects'], true) ? $_GET['from'] : 'tracker';
+        $approver = DB::one('SELECT id, name FROM users WHERE id = ?', [Access::approverId($a)]);
+        $members = Access::canReassign($a) ? array_filter(Access::members(), fn($m) => $m['status'] !== 'disabled') : [];
+        $project = Access::project((int)$a['project_id']);
+        echo view('actions/show', compact('a', 'meeting', 'point', 'notes', 'images', 'comments', 'deps', 'blocks', 'cands', 'from', 'approver', 'members', 'project') + ['title' => $a['title']]);
     }
 
+    /** List checkbox: the owner marks complete (goes for approval); the host approves or reopens. */
     public function toggle(int $id): void
     {
         $a = Access::action($id);
-        if (!Access::canEditAction($a)) abort(403);
-        [$ok, $msg] = Actions::setDone($a, input('done') === '1');
+        $note = (string)input('note');
+        if (input('done') === '1') {
+            if ($a['status'] === 'review' && Access::canApprove($a)) [$ok, $msg] = Actions::approve($a, $note);
+            elseif (Access::canEditAction($a)) [$ok, $msg] = Actions::move($a, 'review', $note);
+            else abort(403);
+        } else {
+            if ($a['status'] === 'done') { if (!Access::canApprove($a)) abort(403, 'Only the host can reopen an approved item.'); [$ok, $msg] = Actions::reopen($a); }
+            elseif (Access::canEditAction($a)) [$ok, $msg] = Actions::move($a, 'open', $note);
+            else abort(403);
+        }
         flash($ok ? 'success' : 'error', $msg);
         back('tracker');
+    }
+
+    /** The owner moves their item between To do, In progress and Completed (sent for approval). */
+    public function status(int $id): void
+    {
+        $a = Access::action($id);
+        if (!Access::canEditAction($a)) abort(403);
+        [$ok, $msg] = Actions::move($a, (string)input('status'), (string)input('note'));
+        flash($ok ? 'success' : 'error', $msg);
+        back('tracker');
+    }
+
+    public function approve(int $id): void
+    {
+        $a = Access::action($id);
+        if (!Access::canApprove($a) || $a['status'] === 'done') abort(403);
+        [$ok, $msg] = Actions::approve($a, (string)input('note'));
+        flash($ok ? 'success' : 'error', $msg);
+        back('tracker');
+    }
+
+    public function sendBack(int $id): void
+    {
+        $a = Access::action($id);
+        if (!Access::canApprove($a) || $a['status'] !== 'review') abort(403);
+        [$ok, $msg] = Actions::sendBack($a, (string)input('note'));
+        flash($ok ? 'success' : 'error', $msg);
+        back('tracker');
+    }
+
+    public function reassign(int $id): void
+    {
+        $a = Access::action($id);
+        if (!Access::canReassign($a)) abort(403);
+        $to = Access::member((int)input('owner_id'));
+        if (!$to || $to['status'] === 'disabled') { flash('error', 'Choose someone from your team.'); back(); }
+        [$ok, $msg] = Actions::reassign($a, $to, (string)input('note'));
+        flash($ok ? 'success' : 'error', $msg);
+        redirect('actions/' . $id);
     }
 
     public function deadline(int $id): void
@@ -222,7 +297,7 @@ final class ActionController
     public function nudgeOverdue(): void
     {
         [$scope, $params] = Access::actionScope('a');
-        $late = array_filter(DB::all("SELECT a.* FROM actions a WHERE a.status = 'open' AND COALESCE(a.new_deadline, a.deadline) < :today AND $scope", ['today' => today()] + $params), [Access::class, 'canNudge']);
+        $late = array_filter(DB::all("SELECT a.* FROM actions a WHERE a.status IN ('open','progress') AND COALESCE(a.new_deadline, a.deadline) < :today AND $scope", ['today' => today()] + $params), [Access::class, 'canNudge']);
         if (input('scope') === 'mine') $late = array_filter($late, fn($a) => (int)$a['created_by'] === uid());
         $people = [];
         foreach ($late as $a) {

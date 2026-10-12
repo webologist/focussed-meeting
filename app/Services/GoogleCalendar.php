@@ -10,29 +10,40 @@ namespace App\Services;
 final class GoogleCalendar
 {
     public const SCOPES = 'openid email https://www.googleapis.com/auth/calendar.events';
+    /** Added when the admin also wants invites and reminders sent from this Gmail / Workspace account. */
+    public const MAIL_SCOPE = 'https://www.googleapis.com/auth/gmail.send';
 
-    public static function configured(): bool { return (string)config('google.client_id') !== '' && (string)config('google.client_secret') !== ''; }
+    public static function configured(int $orgId = 0): bool { return OAuthApps::get($orgId ?: org_id(), 'google') !== null; }
 
     public static function redirectUri(): string { return url('integrations/google/callback'); }
 
-    public static function authUrl(string $state): string
+    private static function app(int $orgId): array
+    {
+        $app = OAuthApps::get($orgId, 'google');
+        if (!$app) throw new \RuntimeException('Google sign-in isn’t set up yet. Add your Google OAuth app in Integrations.');
+        return $app;
+    }
+
+    public static function authUrl(string $state, int $orgId, bool $withMail = false): string
     {
         return 'https://accounts.google.com/o/oauth2/v2/auth?' . http_build_query([
-            'client_id'     => config('google.client_id'),
+            'client_id'     => self::app($orgId)['client_id'],
             'redirect_uri'  => self::redirectUri(),
             'response_type' => 'code',
-            'scope'         => self::SCOPES,
+            'scope'         => self::SCOPES . ($withMail ? ' ' . self::MAIL_SCOPE : ''),
             'access_type'   => 'offline',
             'prompt'        => 'consent',
+            'include_granted_scopes' => 'true',
             'state'         => $state,
         ]);
     }
 
-    /** Exchange the OAuth code. Returns [config, emailLabel]. */
-    public static function exchange(string $code): array
+    /** Exchange the OAuth code. Returns [config, emailLabel]. config['mail'] is true when Gmail sending was granted. */
+    public static function exchange(string $code, int $orgId): array
     {
+        $app = self::app($orgId);
         $r = Http::request('POST', 'https://oauth2.googleapis.com/token', ['form' => [
-            'code' => $code, 'client_id' => config('google.client_id'), 'client_secret' => config('google.client_secret'),
+            'code' => $code, 'client_id' => $app['client_id'], 'client_secret' => $app['client_secret'],
             'redirect_uri' => self::redirectUri(), 'grant_type' => 'authorization_code',
         ]]);
         if ($r['status'] !== 200 || empty($r['body']['refresh_token'])) {
@@ -44,11 +55,14 @@ final class GoogleCalendar
             $payload = json_decode(base64_decode(strtr($parts[1] ?? '', '-_', '+/')), true);
             $email = (string)($payload['email'] ?? '');
         }
+        $granted = (string)($r['body']['scope'] ?? '');
+        if (!str_contains($granted, 'calendar.events')) throw new \RuntimeException('Google Calendar access wasn’t granted. Connect again and tick every permission on the consent screen.');
         return [[
             'refresh_token' => $r['body']['refresh_token'],
             'access_token'  => $r['body']['access_token'],
             'expires_at'    => time() + (int)($r['body']['expires_in'] ?? 3500) - 60,
             'email'         => $email,
+            'mail'          => str_contains($granted, self::MAIL_SCOPE),
         ], $email];
     }
 
@@ -58,8 +72,9 @@ final class GoogleCalendar
         if (!$int) throw new \RuntimeException('Google is not connected for this company.');
         $c = $int['config'];
         if (!empty($c['access_token']) && ($c['expires_at'] ?? 0) > time()) return $c['access_token'];
+        $app = self::app($orgId);
         $r = Http::request('POST', 'https://oauth2.googleapis.com/token', ['form' => [
-            'client_id' => config('google.client_id'), 'client_secret' => config('google.client_secret'),
+            'client_id' => $app['client_id'], 'client_secret' => $app['client_secret'],
             'refresh_token' => $c['refresh_token'] ?? '', 'grant_type' => 'refresh_token',
         ]]);
         if ($r['status'] !== 200 || empty($r['body']['access_token'])) {
@@ -70,6 +85,15 @@ final class GoogleCalendar
         $c['expires_at'] = time() + (int)($r['body']['expires_in'] ?? 3500) - 60;
         Integrations::updateConfig($orgId, 'google', $c);
         return $c['access_token'];
+    }
+
+    /** Send a complete MIME message through the Gmail API as the connected account. */
+    public static function sendMail(int $orgId, string $mime): void
+    {
+        $r = Http::request('POST', 'https://gmail.googleapis.com/gmail/v1/users/me/messages/send', ['bearer' => self::accessToken($orgId), 'json' => ['raw' => rtrim(strtr(base64_encode($mime), '+/', '-_'), '=')]]);
+        if ($r['status'] >= 300) {
+            throw new \RuntimeException('Gmail: ' . (is_array($r['body']) ? ($r['body']['error']['message'] ?? 'Unknown error') : 'Unknown error'));
+        }
     }
 
     /**

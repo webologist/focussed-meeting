@@ -1,12 +1,12 @@
 <?php
 /**
- * Focused Meetings configuration.
+ * MeetFlow configuration.
  * Copy this file to config/config.php and fill in your values.
  * Never commit config/config.php to version control.
  */
 return [
     'app' => [
-        'name'      => 'Focused Meetings',
+        'name'      => 'MeetFlow',
         // Full public URL of the app, no trailing slash. e.g. https://meetings.yourdomain.com
         'url'       => 'http://localhost:8000',
         // 64 hex chars. Generate with: php -r "echo bin2hex(random_bytes(32));"
@@ -38,19 +38,21 @@ return [
         'username'   => 'no-reply@yourdomain.com',
         'password'   => '',
         'from_email' => 'no-reply@yourdomain.com',
-        'from_name'  => 'Focused Meetings',
+        'from_name'  => 'MeetFlow',
         // When a company has no email connected, send its invites/minutes through the platform mailer.
         'fallback_for_companies' => true,
     ],
 
-    // Google Cloud OAuth client (one per platform). Each company connects its own Google account.
+    // Google Cloud OAuth client (one per platform, optional). Each company connects its own Google account.
+    // Leave empty to let each company add its own OAuth app in Integrations.
     // Redirect URI to register in Google Cloud: {app.url}/integrations/google/callback
     'google' => [
         'client_id'     => '',
         'client_secret' => '',
     ],
 
-    // Microsoft Entra (Azure AD) app registration, multi-tenant. Each company connects its own Microsoft 365 account.
+    // Microsoft Entra (Azure AD) app registration, multi-tenant, optional. Each company connects its own Microsoft 365 account.
+    // Leave empty to let each company add its own app in Integrations.
     // Redirect URI to register: {app.url}/integrations/microsoft/callback
     'microsoft' => [
         'client_id'     => '',

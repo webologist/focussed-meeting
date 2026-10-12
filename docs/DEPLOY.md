@@ -1,11 +1,11 @@
-# Deploying Focused Meetings
+# Deploying MeetFlow
 
 ## Option A: Hostinger or any cPanel shared hosting
 
 1. **Create the database.** In hPanel → Databases → MySQL Databases, create a database and a user, and give the user all privileges on it. Note the database name, user and password (on Hostinger they look like `u123456789_meetings`).
 
 2. **Upload the code.** Download the repository as a ZIP from GitHub and upload it with File Manager, or use Git (hPanel → Advanced → Git).
-   - **Best:** put the project in a folder outside `public_html` (for example `/home/USER/focused-meetings`) and point your domain or subdomain’s document root at `/home/USER/focused-meetings/public`.
+   - **Best:** put the project in a folder outside `public_html` (for example `/home/USER/meetflow`) and point your domain or subdomain’s document root at `/home/USER/meetflow/public`.
    - **If you can’t change the document root:** upload everything into `public_html`. The included root `.htaccess` sends all traffic into `/public` and blocks direct access to `app`, `config`, `storage` and `database`.
 
 3. **Configure.** Copy `config/config.sample.php` to `config/config.php` and set:
@@ -22,20 +22,24 @@
 
 7. **Add the cron job.** hPanel → Advanced → Cron Jobs → every 5 minutes:
    ```
-   /usr/bin/php /home/USER/focused-meetings/cron/run.php >> /home/USER/focused-meetings/storage/logs/cron.log 2>&1
+   /usr/bin/php /home/USER/meetflow/cron/run.php >> /home/USER/meetflow/storage/logs/cron.log 2>&1
    ```
    Adjust the path to where you uploaded the project (for the `public_html` layout it is `/home/USER/public_html/cron/run.php`).
 
 8. **Sign up.** Open `https://your-domain/register`, create the first company, confirm the email, then go to **Integrations** to connect the company’s email.
 
-9. **Set PHP options** (hPanel → Advanced → PHP Configuration): PHP 8.1+, `upload_max_filesize` and `post_max_size` at least 32M for note images.
+9. **Create the platform owner (super admin).** Over SSH run `php database/owner.php you@yourdomain.com`. It prints a one-time link (valid 1 hour) to set the owner password. Then sign in at `https://your-domain/owner/login` to see every company, change plans and seats, suspend or restore a company, and create password links for users. Run the same command again if you ever forget the owner password.
+
+10. **After each update**, run `php database/migrate.php` to add any new tables or columns. It is safe to run any number of times.
+
+11. **Set PHP options** (hPanel → Advanced → PHP Configuration): PHP 8.1+, `upload_max_filesize` and `post_max_size` at least 32M for note images.
 
 ## Option B: VPS (Ubuntu, Nginx, PHP-FPM)
 
 ```bash
 sudo apt install nginx mariadb-server php8.3-fpm php8.3-mysql php8.3-curl php8.3-mbstring php8.3-intl
-git clone https://github.com/webologist/focused-meetings.git /var/www/focused-meetings
-cd /var/www/focused-meetings && cp config/config.sample.php config/config.php   # edit it
+git clone https://github.com/webologist/focussed-meeting.git /var/www/meetflow
+cd /var/www/meetflow && cp config/config.sample.php config/config.php   # edit it
 php database/install.php
 sudo chown -R www-data:www-data storage
 ```
@@ -45,7 +49,7 @@ Nginx server block:
 ```nginx
 server {
     server_name meetings.example.com;
-    root /var/www/focused-meetings/public;
+    root /var/www/meetflow/public;
     index index.php;
     client_max_body_size 32m;
     location / { try_files $uri /index.php?$query_string; }
@@ -57,7 +61,7 @@ server {
 Then add HTTPS with `certbot --nginx` and a cron entry:
 
 ```
-*/5 * * * * www-data php /var/www/focused-meetings/cron/run.php >> /var/www/focused-meetings/storage/logs/cron.log 2>&1
+*/5 * * * * www-data php /var/www/meetflow/cron/run.php >> /var/www/meetflow/storage/logs/cron.log 2>&1
 ```
 
 ## After go-live checklist

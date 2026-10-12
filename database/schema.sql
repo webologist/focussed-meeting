@@ -1,4 +1,4 @@
--- Focused Meetings database schema
+-- MeetFlow database schema
 -- MySQL 8.0+ or MariaDB 10.5+. Import into an empty database:
 --   mysql -u USER -p DBNAME < database/schema.sql
 -- All timestamps are stored in UTC.
@@ -16,6 +16,7 @@ CREATE TABLE organizations (
   timezone      VARCHAR(64)  NOT NULL DEFAULT 'Asia/Kolkata',
   plan          VARCHAR(20)  NOT NULL DEFAULT 'free',     -- free | pro | business (billing in a later phase)
   seats_limit   INT UNSIGNED NULL,                        -- NULL = unlimited
+  status        ENUM('active','suspended') NOT NULL DEFAULT 'active',  -- set by the platform owner
   created_at    DATETIME NOT NULL,
   updated_at    DATETIME NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -97,12 +98,42 @@ CREATE TABLE integrations (
   CONSTRAINT fk_integrations_org FOREIGN KEY (org_id) REFERENCES organizations(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- A company's own Google / Microsoft OAuth app, used instead of the platform app in config.php (secret encrypted)
+CREATE TABLE oauth_clients (
+  id                INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  org_id            INT UNSIGNED NOT NULL,
+  provider          ENUM('google','microsoft') NOT NULL,
+  client_id         VARCHAR(255) NOT NULL,
+  client_secret_enc TEXT NOT NULL,
+  tenant            VARCHAR(100) NULL,
+  created_by        INT UNSIGNED NULL,
+  created_at        DATETIME NOT NULL,
+  updated_at        DATETIME NULL,
+  UNIQUE KEY uq_oauth_client (org_id, provider),
+  CONSTRAINT fk_oauth_clients_org FOREIGN KEY (org_id) REFERENCES organizations(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Projects group meetings and tasks (optional)
+CREATE TABLE projects (
+  id           INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  org_id       INT UNSIGNED NOT NULL,
+  name         VARCHAR(120) NOT NULL,
+  description  VARCHAR(500) NULL,
+  status       ENUM('active','archived') NOT NULL DEFAULT 'active',
+  created_by   INT UNSIGNED NULL,
+  created_at   DATETIME NOT NULL,
+  updated_at   DATETIME NULL,
+  KEY idx_projects_org (org_id, status),
+  CONSTRAINT fk_projects_org FOREIGN KEY (org_id) REFERENCES organizations(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- ---------------------------------------------------------------
 -- Meetings
 -- ---------------------------------------------------------------
 CREATE TABLE meetings (
   id                 INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   org_id             INT UNSIGNED NOT NULL,
+  project_id         INT UNSIGNED NULL,
   organizer_id       INT UNSIGNED NOT NULL,
   title              VARCHAR(200) NOT NULL,
   meeting_date       DATE NOT NULL,              -- local date in the meeting timezone
@@ -117,14 +148,18 @@ CREATE TABLE meetings (
   status             ENUM('scheduled','completed','cancelled') NOT NULL DEFAULT 'scheduled',
   sent_email         TINYINT(1) NOT NULL DEFAULT 1,
   sent_whatsapp      TINYINT(1) NOT NULL DEFAULT 0,
+  sent_personal      TINYINT(1) NOT NULL DEFAULT 0,  -- personal invite: printed letters and sharing from the host's own phone or mail app
+  personal_note      TEXT NULL,                  -- optional personal message sent with every invite
   invite_sent_at     DATETIME NULL,
   mom_sent_at        DATETIME NULL,
   completed_at       DATETIME NULL,
   created_at         DATETIME NOT NULL,
   updated_at         DATETIME NULL,
   KEY idx_meetings_org_date (org_id, meeting_date),
+  KEY idx_meetings_project (project_id),
   CONSTRAINT fk_meetings_org FOREIGN KEY (org_id) REFERENCES organizations(id) ON DELETE CASCADE,
-  CONSTRAINT fk_meetings_organizer FOREIGN KEY (organizer_id) REFERENCES users(id)
+  CONSTRAINT fk_meetings_organizer FOREIGN KEY (organizer_id) REFERENCES users(id),
+  CONSTRAINT fk_meetings_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Invitees must be registered members of the company (registration is compulsory)
@@ -150,6 +185,12 @@ CREATE TABLE agenda_items (
   subpoints       JSON NULL,                     -- array of strings
   discussion      TEXT NULL,                     -- minutes discussed
   added_in_meeting TINYINT(1) NOT NULL DEFAULT 0,
+  -- Points an attendee asks to add: pending until the host approves or declines. NULL = regular agenda point.
+  request_status  ENUM('pending','approved','declined') NULL,
+  requested_by    INT UNSIGNED NULL,
+  review_note     VARCHAR(500) NULL,
+  reviewed_by     INT UNSIGNED NULL,
+  reviewed_at     DATETIME NULL,
   updated_by      INT UNSIGNED NULL,
   updated_at      DATETIME NULL,
   KEY idx_agenda_meeting (meeting_id, position),
@@ -163,6 +204,7 @@ CREATE TABLE agenda_items (
 CREATE TABLE actions (
   id              INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   org_id          INT UNSIGNED NOT NULL,
+  project_id      INT UNSIGNED NULL,
   meeting_id      INT UNSIGNED NULL,
   agenda_item_id  INT UNSIGNED NULL,
   title           VARCHAR(255) NOT NULL,
@@ -172,7 +214,9 @@ CREATE TABLE actions (
   created_by      INT UNSIGNED NOT NULL,
   deadline        DATE NOT NULL,
   new_deadline    DATE NULL,
-  status          ENUM('open','done') NOT NULL DEFAULT 'open',
+  status          ENUM('open','progress','review','done') NOT NULL DEFAULT 'open',  -- review = completed by the owner, waiting for approval
+  submitted_at    DATETIME NULL,
+  approved_by     INT UNSIGNED NULL,
   done_at         DATETIME NULL,
   last_due_reminder_on DATE NULL,
   last_overdue_alert_on DATE NULL,
@@ -181,11 +225,13 @@ CREATE TABLE actions (
   KEY idx_actions_org_status (org_id, status),
   KEY idx_actions_owner (owner_id, status),
   KEY idx_actions_meeting (meeting_id),
+  KEY idx_actions_project (project_id),
   CONSTRAINT fk_actions_org FOREIGN KEY (org_id) REFERENCES organizations(id) ON DELETE CASCADE,
   CONSTRAINT fk_actions_meeting FOREIGN KEY (meeting_id) REFERENCES meetings(id) ON DELETE CASCADE,
   CONSTRAINT fk_actions_agenda FOREIGN KEY (agenda_item_id) REFERENCES agenda_items(id) ON DELETE SET NULL,
   CONSTRAINT fk_actions_owner FOREIGN KEY (owner_id) REFERENCES users(id),
-  CONSTRAINT fk_actions_creator FOREIGN KEY (created_by) REFERENCES users(id)
+  CONSTRAINT fk_actions_creator FOREIGN KEY (created_by) REFERENCES users(id),
+  CONSTRAINT fk_actions_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE action_dependencies (
@@ -292,6 +338,34 @@ CREATE TABLE audit_log (
   ip          VARCHAR(45) NULL,
   created_at  DATETIME NOT NULL,
   KEY idx_audit_org (org_id, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------
+-- Platform owner (super admin). Separate from company users; manages all companies.
+-- Created with: php database/owner.php you@example.com  (prints a one-time link to set the password)
+-- ---------------------------------------------------------------
+CREATE TABLE platform_admins (
+  id                INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  email             VARCHAR(190) NOT NULL UNIQUE,
+  name              VARCHAR(120) NOT NULL DEFAULT 'Platform owner',
+  password_hash     VARCHAR(255) NULL,
+  setup_token_hash  CHAR(64) NULL,
+  setup_expires_at  DATETIME NULL,
+  last_login_at     DATETIME NULL,
+  created_at        DATETIME NOT NULL,
+  updated_at        DATETIME NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE platform_audit (
+  id          BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  admin_id    INT UNSIGNED NULL,
+  event       VARCHAR(60) NOT NULL,
+  org_id      INT UNSIGNED NULL,
+  user_id     INT UNSIGNED NULL,
+  meta        VARCHAR(1000) NULL,
+  ip          VARCHAR(45) NULL,
+  created_at  DATETIME NOT NULL,
+  KEY idx_paudit_created (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 SET foreign_key_checks = 1;

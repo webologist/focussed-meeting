@@ -5,15 +5,19 @@ use App\Services\Actions;
 $canEdit = Access::canEditAction($a);
 $isOwner = (int)$a['owner_id'] === uid();
 $done = $a['status'] === 'done';
-$backLabel = ['dashboard' => 'My dashboard', 'tracker' => 'Action tracker', 'meetings' => 'Meeting'][$from];
+$backLabel = ['dashboard' => 'My dashboard', 'tracker' => 'All tasks', 'meetings' => 'Meeting', 'projects' => 'Projects'][$from];
 $backHref = $from === 'meetings' && $meeting ? 'meetings/' . $meeting['id'] : $from;
-$statusPill = $done ? '<span class="pill s-done">Done</span>' : (Actions::isOverdue($a) ? '<span class="pill p-high">Overdue</span>' : '<span class="pill s-neutral">Open</span>');
+$statusPill = Actions::statusPill($a);
 $blockerCount = count(array_filter($deps, fn($d) => $d['status'] !== 'done'));
+$isApprover = (int)$approver['id'] === uid();
+$canApprove = Access::canApprove($a);
+$steps = ['open' => 'To do', 'progress' => 'In progress', 'review' => 'Completed, awaiting approval', 'done' => 'Approved'];
+$stepIdx = array_search($a['status'], array_keys($steps), true);
 ?>
 <div><a class="btn ghost sm" href="<?= e(path($backHref)) ?>"><?= icon('back', 14) ?><?= e($backLabel) ?></a></div>
 <div class="head">
   <div style="min-width:0">
-    <div class="row" style="gap:8px"><?= pri_pill($a['priority']) ?><?= $statusPill ?><?php if ($blockerCount && !$done): ?><span class="pill s-pending"><?= icon('link', 12) ?> Waiting on <?= $blockerCount ?></span><?php endif; ?></div>
+    <div class="row" style="gap:8px"><?= pri_pill($a['priority']) ?><?= $statusPill ?><?php if ($blockerCount && !$done): ?><span class="pill s-pending"><?= icon('link', 12) ?> Waiting on <?= $blockerCount ?></span><?php endif; ?><?php if ($project): ?><a class="pill s-project" href="<?= e(path('tracker', ['project' => $project['id']])) ?>"><?= e($project['name']) ?></a><?php endif; ?></div>
     <h1 style="margin-top:8px"><?= e($a['title']) ?></h1>
     <p class="muted"><?php if ($meeting): ?>From <a href="<?= e(path('meetings/' . $meeting['id'])) ?>"><?= e($meeting['title']) ?></a> · <?= e(fmt_date($meeting['meeting_date'])) ?><?= $point ? ' · Point: ' . e($point['title']) : '' ?><?php else: ?>Task assigned by <?= e($a['creator']['name']) ?> on <?= e(fmt_local($a['created_at'], 'j M Y')) ?><?php endif; ?></p>
     <?php if ($a['details']): ?><p style="margin:6px 0 0;white-space:pre-wrap"><?= e($a['details']) ?></p><?php endif; ?>
@@ -21,16 +25,41 @@ $blockerCount = count(array_filter($deps, fn($d) => $d['status'] !== 'done'));
   <div class="row">
     <?php if (!$done): ?><button type="button" class="btn" data-open-reminder data-action-id="<?= (int)$a['id'] ?>" data-text="<?= e($a['title']) ?>" data-due="<?= e(Actions::effDeadline($a)) ?>"><?= icon('bell', 15) ?>Remind me</button><?php endif; ?>
     <?php if (Access::canNudge($a)): ?><button type="button" class="btn" data-open-nudge data-action-id="<?= (int)$a['id'] ?>" data-owner="<?= e($a['owner']['name']) ?>" data-text="<?= e($a['title']) ?>" data-due="<?= e(fmt_date(Actions::effDeadline($a))) ?>" data-overdue="<?= Actions::isOverdue($a) ? '1' : '0' ?>"><?= icon('send', 15) ?>Send reminder</button><?php endif; ?>
-    <?php if ($canEdit): ?>
-      <form method="post" action="<?= e(path('actions/' . $a['id'] . '/toggle')) ?>" class="inline"><?= csrf_field() ?><input type="hidden" name="done" value="<?= $done ? '0' : '1' ?>">
-        <button class="btn <?= $done ? '' : 'primary' ?>" type="submit"><?= icon('check', 15) ?><?= $done ? 'Reopen' : 'Mark complete' ?></button></form>
+    <?php if ($done && $canApprove): ?>
+      <form method="post" action="<?= e(path('actions/' . $a['id'] . '/toggle')) ?>" class="inline"><?= csrf_field() ?><input type="hidden" name="done" value="0">
+        <button class="btn" type="submit" data-confirm="Reopen this item? It goes back to <?= e($a['owner']['name']) ?>."><?= icon('check', 15) ?>Reopen</button></form>
+    <?php elseif ($a['status'] === 'review' && $canApprove): ?>
+      <button type="button" class="btn primary" data-review data-action-id="<?= (int)$a['id'] ?>" data-title="<?= e($a['title']) ?>" data-owner="<?= e($a['owner']['name']) ?>"><?= icon('check', 15) ?>Review and approve</button>
+    <?php elseif (!$done && $a['status'] !== 'review' && $canEdit): ?>
+      <button type="button" class="btn primary" data-complete data-action-id="<?= (int)$a['id'] ?>" data-title="<?= e($a['title']) ?>" data-approver="<?= e($isApprover ? '' : $approver['name']) ?>"><?= icon('check', 15) ?>Mark complete</button>
     <?php endif; ?>
   </div>
 </div>
 
+<div class="panel"><div class="panel-b stack">
+  <ol class="steps" aria-label="Progress">
+    <?php foreach (array_values($steps) as $i => $label): ?><li class="<?= $i < $stepIdx ? 'past' : ($i === $stepIdx ? 'now' : '') ?>"><?= e($label) ?></li><?php endforeach; ?>
+  </ol>
+  <?php if ($a['status'] === 'review'): ?>
+    <div class="banner"><div>Marked complete <?= $a['submitted_at'] ? e(fmt_local($a['submitted_at'])) : '' ?>. <?= $canApprove ? 'Please review it: approve, or send it back with a note.' : 'Waiting for ' . e($approver['name']) . ' to approve it. Until then you can still move it back and keep working on it.' ?></div></div>
+  <?php elseif ($done): ?>
+    <div class="faint small">Approved<?= $a['done_at'] ? ' on ' . e(fmt_local($a['done_at'], 'j M Y')) : '' ?>. <?= $canApprove ? 'You can reopen it if more work is needed.' : 'Only ' . e($approver['name']) . ' can reopen it.' ?></div>
+  <?php endif; ?>
+  <?php if (!$done && $canEdit): ?>
+  <form method="post" action="<?= e(path('actions/' . $a['id'] . '/status')) ?>" class="row" style="gap:6px"><?= csrf_field() ?>
+    <span class="faint small">Move to</span>
+    <button class="btn sm <?= $a['status'] === 'open' ? 'primary' : '' ?>" name="status" value="open" type="submit" <?= $a['status'] === 'open' ? 'disabled' : '' ?>>To do</button>
+    <button class="btn sm <?= $a['status'] === 'progress' ? 'primary' : '' ?>" name="status" value="progress" type="submit" <?= $a['status'] === 'progress' ? 'disabled' : '' ?>>In progress</button>
+    <?php if ($a['status'] !== 'review'): ?><button class="btn sm" type="button" data-complete data-action-id="<?= (int)$a['id'] ?>" data-title="<?= e($a['title']) ?>" data-approver="<?= e($isApprover ? '' : $approver['name']) ?>">Completed<?= $isApprover ? '' : ' (send for approval)' ?></button>
+    <?php else: ?><span class="pill s-review">Awaiting approval</span><?php endif; ?>
+  </form>
+  <?php endif; ?>
+</div></div>
+
 <div class="panel"><div class="panel-b kv">
   <div><span class="eyebrow">Responsible</span><?= person_chip($a['owner'], 24) ?></div>
   <div><span class="eyebrow">Assigned by</span><?= person_chip($a['creator'], 24) ?></div>
+  <div><span class="eyebrow">Approved by</span><?= person_chip($approver, 24) ?><span class="sub">host<?= $meeting ? ' of the meeting' : '' ?></span></div>
   <div><span class="eyebrow">Deadline</span><span class="mono <?= $a['new_deadline'] ? 'strike' : '' ?>"><?= e(fmt_date($a['deadline'])) ?></span><?php if (!$a['new_deadline']) echo View::partial('partials/due', ['a' => $a]); ?></div>
   <div><span class="eyebrow">New deadline</span>
     <?php if ($done || !$canEdit): ?><span class="mono"><?= e($a['new_deadline'] ? fmt_date($a['new_deadline']) : '—') ?></span>
@@ -58,6 +87,17 @@ $blockerCount = count(array_filter($deps, fn($d) => $d['status'] !== 'done'));
       <?php foreach ($blocks as $b): ?><div class="dep"><?= $b['status'] === 'done' ? '<span class="pill s-done">Done</span>' : '<span class="pill s-neutral">Open</span>' ?><a class="linkish" href="<?= e(path('actions/' . $b['id'], ['from' => $from])) ?>"><?= e($b['title']) ?></a><?= person_chip(['id' => $b['owner_id'], 'name' => $b['owner_name']]) ?><span></span></div><?php endforeach; ?>
     </div></div><?php endif; ?>
   </div></div>
+
+<?php if ($members): ?>
+<form method="post" action="<?= e(path('actions/' . $a['id'] . '/reassign')) ?>" class="panel"><?= csrf_field() ?>
+  <div class="panel-h"><h2>Hand over</h2><span class="faint small">Assign this item to another team member. They’re notified and it moves to their list.</span></div>
+  <div class="panel-b row reassign">
+    <select name="owner_id" required aria-label="New responsible person"><option value="">Choose a team member…</option>
+      <?php foreach ($members as $mem): if ((int)$mem['id'] === (int)$a['owner_id']) continue; ?><option value="<?= (int)$mem['id'] ?>"><?= e($mem['name']) ?><?= (int)$mem['id'] === uid() ? ' (me)' : '' ?><?= $mem['status'] === 'invited' ? ' (invited)' : '' ?></option><?php endforeach; ?></select>
+    <input type="text" name="note" maxlength="1000" placeholder="Handover note (optional): context, files, what’s left" aria-label="Handover note">
+    <button class="btn" type="submit" data-confirm="Hand this item over? The new person becomes responsible for it."><?= icon('send', 14) ?>Reassign</button>
+  </div></form>
+<?php endif; ?>
 
 <?php if ($point && $point['discussion']): ?><div class="point-ctx"><span class="eyebrow">What was discussed</span><p style="margin-top:4px"><?= e($point['discussion']) ?></p></div><?php endif; ?>
 

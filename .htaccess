@@ -1,0 +1,12 @@
+# Used only when the whole project is uploaded into public_html and the domain
+# cannot be pointed at the /public folder (common on shared hosting).
+# It sends every request into /public and blocks direct access to app code, config and storage.
+Options -Indexes
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule ^(app|config|database|storage|cron|docs|\.git)(/|$) - [F,L]
+    RewriteRule ^(README\.md|composer\.json|\.env.*)$ - [F,L]
+    RewriteCond %{REQUEST_URI} !^/public/
+    RewriteRule ^(.*)$ public/$1 [L]
+</IfModule>

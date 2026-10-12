@@ -10,16 +10,18 @@ if ($basePath && str_starts_with($reqPath, $basePath)) $reqPath = substr($reqPat
 $section = explode('/', trim($reqPath, '/'))[0] ?: 'dashboard';
 if ($section === 'actions') $section = $_GET['from'] ?? 'tracker';
 
-$mineOpen = (int)DB::value("SELECT COUNT(*) FROM actions WHERE org_id = ? AND owner_id = ? AND status = 'open'", [org_id(), uid()]);
-$mineLate = (int)DB::value("SELECT COUNT(*) FROM actions WHERE org_id = ? AND owner_id = ? AND status = 'open' AND COALESCE(new_deadline, deadline) < ?", [org_id(), uid(), today()]);
+$mineOpen = (int)DB::value("SELECT COUNT(*) FROM actions WHERE org_id = ? AND owner_id = ? AND status <> 'done'", [org_id(), uid()]);
+$mineLate = (int)DB::value("SELECT COUNT(*) FROM actions WHERE org_id = ? AND owner_id = ? AND status IN ('open','progress') AND COALESCE(new_deadline, deadline) < ?", [org_id(), uid(), today()]);
+$toApprove = (int)DB::value("SELECT COUNT(*) FROM actions a LEFT JOIN meetings m ON m.id = a.meeting_id WHERE a.org_id = ? AND a.status = 'review' AND COALESCE(m.organizer_id, a.created_by) = ?", [org_id(), uid()]);
 [$scope, $sp] = Access::actionScope('a');
-$trackerOpen = (int)DB::value("SELECT COUNT(*) FROM actions a WHERE a.status = 'open' AND $scope", $sp);
+$trackerOpen = (int)DB::value("SELECT COUNT(*) FROM actions a WHERE a.status <> 'done' AND $scope", $sp);
 $unread = (int)DB::value('SELECT COUNT(*) FROM notifications WHERE user_id = ? AND read_at IS NULL', [uid()]);
 
 $nav = [
-    ['dashboard', 'My dashboard', 'home', $mineOpen, $mineLate > 0],
-    ['tracker', 'Action tracker', 'dash', $trackerOpen, false],
+    ['dashboard', 'My dashboard', 'home', $mineOpen + $toApprove, $mineLate > 0 || $toApprove > 0],
+    ['tracker', 'All tasks', 'dash', $trackerOpen, false],
     ['meetings', 'Meetings', 'cal', null, false],
+    ['projects', 'Projects', 'doc', null, false],
 ];
 if (is_admin()) $nav[] = ['reports', 'Reports', 'chart', null, false];
 $nav2 = [];
@@ -61,7 +63,7 @@ $navBtn = function (array $n) use ($section) {
         <div class="faint" style="font-size:.74rem;overflow:hidden;text-overflow:ellipsis"><?= e($u['email']) ?></div></div></a>
       <div class="row" style="gap:6px">
         <a class="btn ghost sm bell" href="<?= e(path('notifications')) ?>" title="Notifications"><?= icon('bell', 15) ?>Alerts<?php if ($unread): ?><span class="n"><?= $unread ?></span><?php endif; ?></a>
-        <form method="post" action="<?= e(path('logout')) ?>" class="inline"><?= csrf_field() ?><button class="btn ghost sm" type="submit"><?= icon('logout', 15) ?>Sign out</button></form>
+        <form method="post" action="<?= e(path('logout')) ?>" class="inline"><?= csrf_field() ?><button class="btn ghost sm" type="submit" data-confirm="Sign out of <?= e(config('app.name')) ?>?"><?= icon('logout', 15) ?>Sign out</button></form>
       </div>
     </div>
   </aside>
@@ -70,7 +72,7 @@ $navBtn = function (array $n) use ($section) {
       <div class="brand" style="padding:0"><div class="brand-mark" style="color:var(--accent-ink)"><?= icon('logo', 18) ?></div><div class="brand-name"><?= e(config('app.name')) ?></div></div>
       <div class="top-actions">
         <a class="icon-btn bell" href="<?= e(path('notifications')) ?>" aria-label="Notifications"><?= icon('bell', 18) ?><?php if ($unread): ?><span class="n"><?= $unread ?></span><?php endif; ?></a>
-        <form method="post" action="<?= e(path('logout')) ?>" class="inline"><?= csrf_field() ?><button class="icon-btn" type="submit" aria-label="Sign out"><?= icon('logout', 18) ?></button></form>
+        <form method="post" action="<?= e(path('logout')) ?>" class="inline"><?= csrf_field() ?><button class="icon-btn" type="submit" aria-label="Sign out" data-confirm="Sign out of <?= e(config('app.name')) ?>?"><?= icon('logout', 18) ?></button></form>
       </div>
     </div>
     <nav class="topnav" aria-label="Main">

@@ -1,7 +1,7 @@
 <?php
 // Background jobs: reminders, deadline alerts, daily digest and message retries.
 // Schedule it every 5 minutes (cPanel > Cron Jobs), for example:
-//   php /home/USER/focused-meetings/cron/run.php >> /home/USER/focused-meetings/storage/logs/cron.log 2>&1
+//   php /home/USER/meetflow/cron/run.php >> /home/USER/meetflow/storage/logs/cron.log 2>&1
 declare(strict_types=1);
 
 if (PHP_SAPI !== 'cli') { http_response_code(403); exit('CLI only'); }
@@ -48,7 +48,7 @@ $rows = DB::all("SELECT a.*, o.timezone, o.name AS org_name, ow.name AS owner_na
                    FROM actions a JOIN organizations o ON o.id = a.org_id
                    JOIN users ow ON ow.id = a.owner_id JOIN users cr ON cr.id = a.created_by
                    LEFT JOIN user_settings cs ON cs.user_id = a.created_by LEFT JOIN user_settings os ON os.user_id = a.owner_id
-                  WHERE a.status = 'open'");
+                  WHERE a.status IN ('open','progress')");
 foreach ($rows as $a) {
     $today = local_now($a['timezone'])->format('Y-m-d');
     $due = eff($a);
@@ -81,7 +81,7 @@ foreach (DB::all("SELECT u.id, u.name, u.email, u.org_id, o.name AS org_name, CO
     $today = $now->format('Y-m-d');
     if ($u['last_digest_on'] === $today || $now->format('H:i') < $u['digest_time']) continue;
     DB::update('user_settings', ['last_digest_on' => $today], ['user_id' => $u['id']]);
-    $items = DB::all("SELECT a.*, m.title AS meeting_title FROM actions a LEFT JOIN meetings m ON m.id = a.meeting_id WHERE a.owner_id = ? AND a.status = 'open' ORDER BY COALESCE(a.new_deadline, a.deadline) LIMIT 30", [$u['id']]);
+    $items = DB::all("SELECT a.*, m.title AS meeting_title FROM actions a LEFT JOIN meetings m ON m.id = a.meeting_id WHERE a.owner_id = ? AND a.status IN ('open','progress') ORDER BY COALESCE(a.new_deadline, a.deadline) LIMIT 30", [$u['id']]);
     $meetings = DB::all("SELECT m.* FROM meetings m JOIN meeting_invitees i ON i.meeting_id = m.id AND i.user_id = ? WHERE m.status = 'scheduled' AND m.meeting_date = ? ORDER BY m.start_time", [$u['id'], $today]);
     if (!$items && !$meetings) continue;
     $body = '<p>Hi ' . e(explode(' ', $u['name'])[0]) . ', here’s your day.</p>';

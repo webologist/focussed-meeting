@@ -1,4 +1,4 @@
-/* Focused Meetings — small progressive enhancements. Everything works as plain forms; JS adds convenience. */
+/* MeetFlow — small progressive enhancements. Everything works as plain forms; JS adds convenience. */
 (function () {
   'use strict';
   const $ = (s, r = document) => r.querySelector(s);
@@ -66,6 +66,88 @@
     $('#nudge-to').textContent = 'To ' + b.dataset.owner;
     $('#nudge-msg').value = 'Hi ' + first + ', a quick reminder about "' + b.dataset.text + '". It is due ' + b.dataset.due + (b.dataset.overdue === '1' ? ' and is now overdue' : '') + '. Please update the status or add a note.\n\nThanks,\n' + ((window.FM && window.FM.me) || '');
     nudgeDlg.showModal();
+  });
+
+  // ---- Mark complete: confirm first. It goes to the host for approval unless you are the host ----
+  const actionUrl = (id, tail) => base.replace(/\/?$/, '/') + 'actions/' + id + '/' + tail;
+  const completeDlg = $('#complete-dialog');
+  document.addEventListener('click', e => {
+    const b = e.target.closest('[data-complete]');
+    if (!b || !completeDlg) return;
+    e.preventDefault();
+    $('#complete-form').action = actionUrl(b.dataset.actionId, 'status');
+    $('#complete-item').textContent = b.dataset.title || '';
+    $('#complete-help').textContent = b.dataset.approver
+      ? 'It will go to ' + b.dataset.approver + ' for approval. Until they approve it, you can still move it back and keep working on it.'
+      : 'You’re the host for this item, so it will be marked done straight away.';
+    completeDlg.showModal();
+  });
+
+  // ---- Host reviews a completed item: approve, or send it back with a message ----
+  const reviewDlg = $('#review-dialog');
+  document.addEventListener('click', e => {
+    const b = e.target.closest('[data-review]');
+    if (!b || !reviewDlg) return;
+    e.preventDefault();
+    const f = $('#review-form');
+    f.action = actionUrl(b.dataset.actionId, 'approve');
+    $('#review-back').setAttribute('formaction', actionUrl(b.dataset.actionId, 'send-back'));
+    $('#review-item').textContent = b.dataset.title || '';
+    $('#review-help').textContent = (b.dataset.owner || 'The owner') + ' marked this complete. Approve it to close it, or send it back with what still needs doing.';
+    f.note.value = ''; f.note.required = false;
+    reviewDlg.showModal();
+  });
+  document.addEventListener('click', e => {
+    if (e.target.id !== 'review-back') return;
+    const note = $('#review-form').note;
+    note.required = true;
+    if (!note.value.trim()) { e.preventDefault(); note.focus(); note.reportValidity(); }
+  });
+
+  // ---- Minutes: ask for confirmation before saving, warn before leaving with unsaved changes ----
+  const minutes = $('#minutes-form');
+  if (minutes) {
+    let dirty = false;
+    minutes.addEventListener('input', () => { dirty = true; $('#minutes-state').textContent = 'Unsaved changes. Save before leaving.'; });
+    minutes.addEventListener('change', () => { dirty = true; });
+    window.addEventListener('beforeunload', e => { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
+    const dlg = $('#minutes-confirm');
+    minutes.addEventListener('submit', e => {
+      if (minutes.dataset.confirmed === '1' || !dlg) { dirty = false; return; }
+      e.preventDefault();
+      const boxes = $$('textarea[name^="discussion"]', minutes).filter(t => !t.readOnly);
+      const blank = boxes.filter(t => !t.value.trim());
+      const present = $$('.attend input[type=checkbox]', minutes).filter(c => c.checked).length;
+      const total = $$('.attend input[type=checkbox]', minutes).length;
+      const items = [
+        (boxes.length - blank.length) + ' of ' + boxes.length + ' agenda points have minutes',
+        present + ' of ' + total + ' people marked present',
+      ];
+      if (blank.length) items.push('Still blank: ' + blank.slice(0, 4).map(t => t.dataset.point).join(', ') + (blank.length > 4 ? '…' : ''));
+      $('#mc-summary').innerHTML = items.map((t, i) => '<li class="' + (i === 2 ? 'warn' : '') + '">' + esc(t) + '</li>').join('');
+      dlg.showModal();
+    });
+    if (dlg) dlg.addEventListener('close', () => {
+      if (dlg.returnValue === 'save') { minutes.dataset.confirmed = '1'; dirty = false; minutes.requestSubmit ? minutes.requestSubmit() : minutes.submit(); }
+    });
+    // Adding an action item posts the typed minutes too, so it doesn't count as leaving
+    document.addEventListener('click', e => { if (e.target.closest('[data-add-action]')) dirty = false; }, true);
+  }
+
+  // ---- Copy a value (redirect URIs on the integrations page) ----
+  document.addEventListener('click', e => {
+    const b = e.target.closest('[data-copy-value]');
+    if (!b) return;
+    const el = $(b.dataset.copyValue); if (!el) return;
+    el.select();
+    const done = () => { b.textContent = 'Copied'; setTimeout(() => { b.textContent = 'Copy'; }, 1500); };
+    if (navigator.clipboard) navigator.clipboard.writeText(el.value).then(done, () => document.execCommand('copy') && done());
+    else if (document.execCommand('copy')) done();
+  });
+
+  // ---- Drop-down menus: close when clicking elsewhere ----
+  document.addEventListener('click', e => {
+    $$('details.menu[open]').forEach(d => { if (!d.contains(e.target)) d.open = false; });
   });
 
   // ---- Quick add: icon changes when assigning to someone else ----
@@ -260,7 +342,7 @@
       countInvitees();
     }
     $('#np-list').addEventListener('click', e => { const b = e.target.closest('[data-rmp]'); if (b) { people.splice(+b.dataset.rmp, 1); renderPeople(); } });
-    $('#np-add').addEventListener('click', () => {
+    if ($('#np-add')) $('#np-add').addEventListener('click', () => {
       const name = $('#np-name').value.trim(), email = $('#np-email').value.trim(), phone = $('#np-phone').value.trim();
       if (!name || !/^\S+@\S+\.\S+$/.test(email)) { $('#np-email').focus(); $('#np-email').setCustomValidity('Enter a name and a valid email'); $('#np-email').reportValidity(); setTimeout(() => $('#np-email').setCustomValidity(''), 2000); return; }
       people.push({ name, email, phone }); $('#np-name').value = $('#np-email').value = $('#np-phone').value = ''; renderPeople(); $('#np-name').focus();
@@ -278,12 +360,24 @@
       preview();
     };
     plat.addEventListener('change', syncPlat);
+    const proj = $('#d-project');
+    if (proj) proj.addEventListener('change', () => {
+      const isNew = proj.value === '-1';
+      $('#new-project-wrap').hidden = !isNew; $('#d-new-project').required = isNew;
+      if (isNew) $('#d-new-project').focus();
+      preview();
+    });
     $$('[data-preview]', form).forEach(el => el.addEventListener('input', () => { preview(); updateAlloc(); }));
     $('#d-dur').addEventListener('change', updateAlloc);
 
     function preview() {
       const title = $('#d-title').value.trim() || 'Untitled meeting';
       $('#pv-title').textContent = title; $('#pv-title2').textContent = title;
+      const note = ($('#d-note') && $('#d-note').value.trim()) || '';
+      $('#pv-note').hidden = !note; $('#pv-note').textContent = note;
+      const proj = $('#d-project');
+      const projName = !proj || !proj.value ? '' : (proj.value === '-1' ? $('#d-new-project').value.trim() : proj.options[proj.selectedIndex].text);
+      $('#pv-project-row').hidden = !projName; $('#pv-project').textContent = projName;
       const d = $('#d-date').value, t = $('#d-time').value;
       let when = '';
       if (d) { const x = new Date(d + 'T' + (t || '00:00')); when = x.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) + ', ' + x.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }); }
@@ -301,7 +395,9 @@
     form.addEventListener('submit', e => {
       const pts = points.filter(p => p.title.trim()).map(p => ({ title: p.title.trim(), details: p.details.trim(), presenter: p.presenter, mins: +p.mins || 0, subs: p.subs.map(s => s.trim()).filter(Boolean) }));
       if (!pts.length) { e.preventDefault(); const first = builder.querySelector('[data-f="title"]'); first.setCustomValidity('Add at least one agenda point'); first.reportValidity(); setTimeout(() => first.setCustomValidity(''), 2000); return; }
-      if (!$$('#member-list input:checked').length && !people.length) { e.preventDefault(); $('#np-name').focus(); alert('Add at least one invitee.'); return; }
+      if (!$$('#member-list input:checked').length && !people.length) { e.preventDefault(); if ($('#np-name')) $('#np-name').focus(); alert('Add at least one invitee.'); return; }
+      const proj = $('#d-project');
+      if (proj && proj.value === '-1' && !$('#d-new-project').value.trim()) { e.preventDefault(); $('#d-new-project').focus(); $('#d-new-project').reportValidity(); return; }
       agendaField.value = JSON.stringify(pts);
       peopleField.value = JSON.stringify(people);
     });

@@ -31,6 +31,10 @@ $router->get('/tracker', 'ActionController@tracker', ['auth']);
 $router->get('/actions/{id}', 'ActionController@show', ['auth']);
 $router->post('/actions/{id}/toggle', 'ActionController@toggle', ['auth']);
 $router->post('/actions/{id}/deadline', 'ActionController@deadline', ['auth']);
+$router->post('/actions/{id}/status', 'ActionController@status', ['auth']);
+$router->post('/actions/{id}/approve', 'ActionController@approve', ['auth']);
+$router->post('/actions/{id}/send-back', 'ActionController@sendBack', ['auth']);
+$router->post('/actions/{id}/reassign', 'ActionController@reassign', ['auth']);
 $router->post('/actions/{id}/comment', 'ActionController@comment', ['auth']);
 $router->post('/actions/{id}/note', 'ActionController@note', ['auth']);
 $router->post('/actions/{id}/notes/{note}/delete', 'ActionController@deleteNote', ['auth']);
@@ -43,20 +47,30 @@ $router->get('/images/{id}', 'ActionController@image', ['auth']);
 
 // Meetings (list + planner on one page)
 $router->get('/meetings', 'MeetingController@index', ['auth']);
-$router->post('/meetings', 'MeetingController@store', ['auth', 'admin']);
+$router->post('/meetings', 'MeetingController@store', ['auth']);
 $router->get('/meetings/{id}', 'MeetingController@show', ['auth']);
 $router->post('/meetings/{id}/complete', 'MeetingController@complete', ['auth']);
 $router->post('/meetings/{id}/cancel', 'MeetingController@cancel', ['auth']);
 $router->post('/meetings/{id}/resend', 'MeetingController@resend', ['auth']);
 $router->post('/meetings/{id}/minutes', 'MeetingController@saveMinutes', ['auth']);
 $router->post('/meetings/{id}/points', 'MeetingController@addPoint', ['auth']);
+$router->post('/meetings/{id}/requests', 'MeetingController@requestPoint', ['auth']);
+$router->post('/meetings/{id}/requests/{item}/review', 'MeetingController@reviewRequest', ['auth']);
 $router->post('/meetings/{id}/actions', 'MeetingController@addAction', ['auth']);
 $router->post('/meetings/{id}/rsvp', 'MeetingController@rsvp', ['auth']);
 $router->get('/meetings/{id}/mom', 'MeetingController@mom', ['auth']);
 $router->post('/meetings/{id}/mom/send', 'MeetingController@sendMom', ['auth']);
 $router->get('/meetings/{id}/print/invite', 'MeetingController@printInvite', ['auth']);
 $router->get('/meetings/{id}/print/mom', 'MeetingController@printMom', ['auth']);
+$router->get('/meetings/{id}/print/personal', 'MeetingController@printPersonal', ['auth']);
+$router->get('/meetings/{id}/print/attendance', 'MeetingController@printAttendance', ['auth']);
+$router->get('/meetings/{id}/print/actions', 'MeetingController@printActions', ['auth']);
 $router->get('/meetings/{id}/ics', 'MeetingController@ics', ['auth']);
+
+// Projects
+$router->get('/projects', 'ProjectController@index', ['auth']);
+$router->post('/projects', 'ProjectController@store', ['auth']);
+$router->post('/projects/{id}', 'ProjectController@update', ['auth']);
 
 // Reports (admin)
 $router->get('/reports', 'ReportController@index', ['auth', 'admin']);
@@ -77,10 +91,30 @@ $router->post('/team/company', 'TeamController@company', ['auth', 'admin']);
 // Integrations (admin)
 $router->get('/integrations', 'IntegrationController@index', ['auth', 'admin']);
 $router->post('/integrations/smtp', 'IntegrationController@saveSmtp', ['auth', 'admin']);
+$router->post('/integrations/brevo', 'IntegrationController@saveBrevo', ['auth', 'admin']);
 $router->post('/integrations/smtp/test', 'IntegrationController@testSmtp', ['auth', 'admin']);
 $router->post('/integrations/whatsapp', 'IntegrationController@saveWhatsApp', ['auth', 'admin']);
 $router->post('/integrations/{provider}/disconnect', 'IntegrationController@disconnect', ['auth', 'admin']);
+$router->post('/integrations/{provider}/app', 'IntegrationController@saveApp', ['auth', 'admin']);
+$router->post('/integrations/{provider}/app/remove', 'IntegrationController@removeApp', ['auth', 'admin']);
 $router->get('/integrations/google/connect', 'IntegrationController@googleConnect', ['auth', 'admin']);
 $router->get('/integrations/google/callback', 'IntegrationController@googleCallback', ['auth', 'admin']);
 $router->get('/integrations/microsoft/connect', 'IntegrationController@microsoftConnect', ['auth', 'admin']);
 $router->get('/integrations/microsoft/callback', 'IntegrationController@microsoftCallback', ['auth', 'admin']);
+
+// Platform owner (super admin) console
+$router->get('/owner/login', 'OwnerController@showLogin');
+$router->post('/owner/login', 'OwnerController@login');
+$router->get('/owner/setup', 'OwnerController@showSetup');
+$router->post('/owner/setup', 'OwnerController@setup');
+$router->post('/owner/logout', 'OwnerController@logout', ['owner']);
+$router->get('/owner', 'OwnerController@index', ['owner']);
+$router->get('/owner/companies', 'OwnerController@companiesPage', ['owner']);
+$router->get('/owner/companies/{id}', 'OwnerController@company', ['owner']);
+$router->post('/owner/companies/{id}/plan', 'OwnerController@plan', ['owner']);
+$router->post('/owner/companies/{id}/status', 'OwnerController@companyStatus', ['owner']);
+$router->post('/owner/users/{id}/status', 'OwnerController@userStatus', ['owner']);
+$router->post('/owner/users/{id}/role', 'OwnerController@userRole', ['owner']);
+$router->post('/owner/users/{id}/reset', 'OwnerController@userReset', ['owner']);
+$router->get('/owner/account', 'OwnerController@account', ['owner']);
+$router->post('/owner/account/password', 'OwnerController@password', ['owner']);

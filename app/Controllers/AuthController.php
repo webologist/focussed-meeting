@@ -71,6 +71,7 @@ final class AuthController
             redirect('login');
         }
         if ($u['status'] === 'disabled') { flash('error', 'Your access has been turned off. Contact your company admin.'); redirect('login'); }
+        if (DB::value('SELECT status FROM organizations WHERE id = ?', [$u['org_id']]) === 'suspended') { flash('error', 'Your company’s account is suspended. Contact ' . config('app.name') . ' support.'); redirect('login'); }
         if (password_needs_rehash($u['password_hash'], PASSWORD_DEFAULT)) DB::update('users', ['password_hash' => password_hash($pw, PASSWORD_DEFAULT)], ['id' => $u['id']]);
         Auth::clearFailures($email);
         Auth::login((int)$u['id']);

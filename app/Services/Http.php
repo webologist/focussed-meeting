@@ -19,6 +19,8 @@ final class Http
         if (isset($opts['json'])) {
             $headers[] = 'Content-Type: application/json';
             curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($opts['json']));
+        } elseif (isset($opts['raw'])) {
+            curl_setopt($ch, CURLOPT_POSTFIELDS, (string)$opts['raw']);
         } elseif (isset($opts['form'])) {
             curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($opts['form']));
             $headers[] = 'Content-Type: application/x-www-form-urlencoded';

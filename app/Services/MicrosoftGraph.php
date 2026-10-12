@@ -10,37 +10,50 @@ namespace App\Services;
 final class MicrosoftGraph
 {
     public const SCOPES = 'openid email offline_access User.Read Calendars.ReadWrite OnlineMeetings.ReadWrite';
+    /** Added when the admin also wants invites and reminders sent from this Microsoft 365 mailbox. */
+    public const MAIL_SCOPE = 'Mail.Send';
 
-    public static function configured(): bool { return (string)config('microsoft.client_id') !== '' && (string)config('microsoft.client_secret') !== ''; }
+    public static function configured(int $orgId = 0): bool { return OAuthApps::get($orgId ?: org_id(), 'microsoft') !== null; }
 
     public static function redirectUri(): string { return url('integrations/microsoft/callback'); }
 
-    private static function base(): string { return 'https://login.microsoftonline.com/' . rawurlencode((string)config('microsoft.tenant', 'common')) . '/oauth2/v2.0'; }
-
-    public static function authUrl(string $state): string
+    private static function app(int $orgId): array
     {
-        return self::base() . '/authorize?' . http_build_query([
-            'client_id' => config('microsoft.client_id'), 'response_type' => 'code', 'redirect_uri' => self::redirectUri(),
-            'response_mode' => 'query', 'scope' => self::SCOPES, 'state' => $state, 'prompt' => 'select_account',
+        $app = OAuthApps::get($orgId, 'microsoft');
+        if (!$app) throw new \RuntimeException('Microsoft sign-in isn’t set up yet. Add your Microsoft app in Integrations.');
+        return $app;
+    }
+
+    private static function base(array $app): string { return 'https://login.microsoftonline.com/' . rawurlencode($app['tenant'] ?: 'common') . '/oauth2/v2.0'; }
+
+    public static function authUrl(string $state, int $orgId, bool $withMail = false): string
+    {
+        $app = self::app($orgId);
+        return self::base($app) . '/authorize?' . http_build_query([
+            'client_id' => $app['client_id'], 'response_type' => 'code', 'redirect_uri' => self::redirectUri(),
+            'response_mode' => 'query', 'scope' => self::SCOPES . ($withMail ? ' ' . self::MAIL_SCOPE : ''), 'state' => $state, 'prompt' => 'select_account',
         ]);
     }
 
-    public static function exchange(string $code): array
+    public static function exchange(string $code, int $orgId): array
     {
-        $r = Http::request('POST', self::base() . '/token', ['form' => [
-            'client_id' => config('microsoft.client_id'), 'client_secret' => config('microsoft.client_secret'),
-            'code' => $code, 'redirect_uri' => self::redirectUri(), 'grant_type' => 'authorization_code', 'scope' => self::SCOPES,
+        $app = self::app($orgId);
+        $r = Http::request('POST', self::base($app) . '/token', ['form' => [
+            'client_id' => $app['client_id'], 'client_secret' => $app['client_secret'],
+            'code' => $code, 'redirect_uri' => self::redirectUri(), 'grant_type' => 'authorization_code',
         ]]);
         if ($r['status'] !== 200 || empty($r['body']['refresh_token'])) {
             throw new \RuntimeException('Microsoft did not return access. ' . (is_array($r['body']) ? ($r['body']['error_description'] ?? '') : ''));
         }
         $me = Http::request('GET', 'https://graph.microsoft.com/v1.0/me', ['bearer' => $r['body']['access_token']]);
         $email = is_array($me['body']) ? (string)($me['body']['mail'] ?? $me['body']['userPrincipalName'] ?? '') : '';
+        $mail = stripos((string)($r['body']['scope'] ?? ''), self::MAIL_SCOPE) !== false;
         return [[
             'refresh_token' => $r['body']['refresh_token'],
             'access_token'  => $r['body']['access_token'],
             'expires_at'    => time() + (int)($r['body']['expires_in'] ?? 3500) - 60,
             'email'         => $email,
+            'mail'          => $mail,
         ], $email];
     }
 
@@ -50,9 +63,10 @@ final class MicrosoftGraph
         if (!$int) throw new \RuntimeException('Microsoft Teams is not connected for this company.');
         $c = $int['config'];
         if (!empty($c['access_token']) && ($c['expires_at'] ?? 0) > time()) return $c['access_token'];
-        $r = Http::request('POST', self::base() . '/token', ['form' => [
-            'client_id' => config('microsoft.client_id'), 'client_secret' => config('microsoft.client_secret'),
-            'refresh_token' => $c['refresh_token'] ?? '', 'grant_type' => 'refresh_token', 'scope' => self::SCOPES,
+        $app = self::app($orgId);
+        $r = Http::request('POST', self::base($app) . '/token', ['form' => [
+            'client_id' => $app['client_id'], 'client_secret' => $app['client_secret'],
+            'refresh_token' => $c['refresh_token'] ?? '', 'grant_type' => 'refresh_token', 'scope' => self::SCOPES . (!empty($c['mail']) ? ' ' . self::MAIL_SCOPE : ''),
         ]]);
         if ($r['status'] !== 200 || empty($r['body']['access_token'])) {
             Integrations::markError($orgId, 'microsoft', 'Access expired. Reconnect Microsoft.');
@@ -63,6 +77,15 @@ final class MicrosoftGraph
         $c['expires_at'] = time() + (int)($r['body']['expires_in'] ?? 3500) - 60;
         Integrations::updateConfig($orgId, 'microsoft', $c);
         return $c['access_token'];
+    }
+
+    /** Send a complete MIME message through Microsoft Graph as the connected mailbox. */
+    public static function sendMail(int $orgId, string $mime): void
+    {
+        $r = Http::request('POST', 'https://graph.microsoft.com/v1.0/me/sendMail', ['bearer' => self::accessToken($orgId), 'raw' => base64_encode($mime), 'headers' => ['Content-Type: text/plain']]);
+        if ($r['status'] >= 300) {
+            throw new \RuntimeException('Outlook: ' . (is_array($r['body']) ? ($r['body']['error']['message'] ?? 'Unknown error') : 'Unknown error'));
+        }
     }
 
     /** @return array{id:string, join_url:string} */

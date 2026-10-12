@@ -10,9 +10,9 @@ final class Ics
     {
         $start = new \DateTime($m['starts_at_utc'], new \DateTimeZone('UTC'));
         $end = (clone $start)->modify('+' . (int)$m['duration_min'] . ' minutes');
-        $host = parse_url((string)config('app.url'), PHP_URL_HOST) ?: 'focusedmeetings';
+        $host = parse_url((string)config('app.url'), PHP_URL_HOST) ?: 'meetflow';
         $lines = [
-            'BEGIN:VCALENDAR', 'PRODID:-//Focused Meetings//EN', 'VERSION:2.0', 'CALSCALE:GREGORIAN', "METHOD:$method",
+            'BEGIN:VCALENDAR', 'PRODID:-//MeetFlow//EN', 'VERSION:2.0', 'CALSCALE:GREGORIAN', "METHOD:$method",
             'BEGIN:VEVENT',
             'UID:meeting-' . $m['id'] . '@' . $host,
             'DTSTAMP:' . gmdate('Ymd\THis\Z'),

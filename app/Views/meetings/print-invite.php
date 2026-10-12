@@ -1,17 +1,18 @@
 <?php
-use App\Services\Meetings;
 $others = array_filter($invitees, fn($i) => (int)$i['id'] !== (int)$m['organizer_id']);
 ?>
 <article class="paper">
   <div class="rule"><div><div class="pk">Meeting invitation</div><h1 style="margin-top:4px"><?= e($m['title']) ?></h1></div>
     <div class="meta" style="text-align:right"><?= e(user()['org_name']) ?><br>Ref FM-<?= (int)$m['id'] ?></div></div>
   <table><tbody>
+    <?php if ($project): ?><tr><th>Project</th><td><?= e($project['name']) ?></td></tr><?php endif; ?>
     <tr><th>Date</th><td><?= e(gmdate('l', strtotime($m['meeting_date'] . ' 00:00:00 UTC'))) ?>, <?= e(fmt_date($m['meeting_date'])) ?></td></tr>
     <tr><th>Time</th><td><?= e(fmt_time($m['start_time'])) ?> (<?= (int)$m['duration_min'] ?> min) · <?= e($m['timezone']) ?></td></tr>
     <tr><th>Where</th><td style="overflow-wrap:anywhere"><?= e($m['platform'] === 'inperson' ? ($m['location'] ?: 'To be confirmed') : platform_label($m['platform'])) ?><?php if ($m['platform'] !== 'inperson' && $m['join_url']): ?><br><?= e($m['join_url']) ?><?php endif; ?></td></tr>
-    <tr><th>Organiser</th><td><?= e($m['organizer_name']) ?> · <?= e($m['organizer_email']) ?></td></tr>
+    <tr><th>Host</th><td><?= e($m['organizer_name']) ?> · <?= e($m['organizer_email']) ?></td></tr>
     <tr><th>Invitees</th><td><?= e(implode(', ', array_column($others, 'name'))) ?></td></tr>
   </tbody></table>
+  <?php if ($m['personal_note']): ?><div class="letter-note"><?= e($m['personal_note']) ?></div><?php endif; ?>
   <div><div class="pk" style="margin-bottom:8px">Agenda</div>
     <ol>
       <?php foreach ($agenda as $p): ?>

@@ -17,7 +17,7 @@ final class ReportController
         $meetings = DB::all("SELECT m.*, u.name AS organizer_name,
                 (SELECT COUNT(*) FROM meeting_invitees i WHERE i.meeting_id = m.id) AS invited,
                 (SELECT COUNT(*) FROM meeting_invitees i WHERE i.meeting_id = m.id AND i.attended = 1) AS attended,
-                (SELECT COUNT(*) FROM agenda_items ai WHERE ai.meeting_id = m.id AND (ai.discussion IS NULL OR ai.discussion = '')) AS blank_points
+                (SELECT COUNT(*) FROM agenda_items ai WHERE ai.meeting_id = m.id AND " . \App\Services\Meetings::ON_AGENDA . " AND (ai.discussion IS NULL OR ai.discussion = '')) AS blank_points
               FROM meetings m JOIN users u ON u.id = m.organizer_id
              WHERE m.org_id = ? AND m.meeting_date BETWEEN ? AND ? AND m.status <> 'cancelled' ORDER BY m.meeting_date DESC", [org_id(), $since, $today]);
         $acts = DB::all("SELECT a.*, u.name AS owner_name FROM actions a JOIN users u ON u.id = a.owner_id LEFT JOIN meetings m ON m.id = a.meeting_id

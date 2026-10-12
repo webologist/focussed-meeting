@@ -64,6 +64,12 @@ final class SmtpMailer
         }
     }
 
+    /** The full message (headers and body) without sending it. Used to send through the Gmail or Microsoft Graph APIs. */
+    public function mime(array $msg): string
+    {
+        return $this->build($msg, (string)(($this->cfg['from_email'] ?? '') ?: ($this->cfg['username'] ?? '')));
+    }
+
     private function build(array $msg, string $from): string
     {
         $fromName = (string)($this->cfg['from_name'] ?? '');

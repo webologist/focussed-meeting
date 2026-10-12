@@ -2,7 +2,14 @@
 
 Every company connects its own accounts in **Integrations** (admins only). Invites, reminders and minutes are then sent from the company’s own mailbox and calendar. Secrets are stored encrypted with `app.key`.
 
-Google Meet and Microsoft Teams use OAuth, so **you, the platform owner, register one app** with Google and one with Microsoft and put the keys in `config/config.php`. Each company then clicks **Connect** and signs in with its own account. Email and WhatsApp need no platform setup.
+Google Meet and Microsoft Teams use OAuth. There are two ways to set that up:
+
+- **Platform app (easiest for customers).** You, the platform owner, register one app with Google and one with Microsoft and put the keys in `config/config.php` (steps below). Each company's admin then uses **Quick connect** in Integrations: one click, sign in, approve the consent screen, done.
+- **Company's own app (no server setup).** If there are no platform keys, or a company prefers its own, the admin opens Integrations → Google Meet / Microsoft Teams → *Add your app*, follows the three steps shown there, copies the redirect URI into Google Cloud or Microsoft Entra, and pastes the client ID and secret. The secret is stored encrypted in `oauth_clients`. Then they click **Connect**.
+
+Either way, the connect screen has **Also send invites, reminders and minutes from this account** ticked by default. When the admin allows it on the consent screen, email goes out through the Gmail API (`gmail.send` scope, enable the **Gmail API**) or Microsoft Graph (`Mail.Send`), so no SMTP or app password is needed. Disconnecting Google or Microsoft also stops email sent through it.
+
+Email and WhatsApp need no platform setup.
 
 ## Email: Gmail, Outlook, Zoho, Hostinger or any SMTP
 
@@ -20,7 +27,7 @@ Until a company connects email, its messages go through the platform mailer in `
 ## Google Meet (Google Calendar API)
 
 1. Go to https://console.cloud.google.com, create a project, and enable the **Google Calendar API**.
-2. **OAuth consent screen:** User type *External*, add your app name, support email and domain, and add the scopes `openid`, `email` and `https://www.googleapis.com/auth/calendar.events`.
+2. **OAuth consent screen:** User type *External*, add your app name, support email and domain, and add the scopes `openid`, `email`, `https://www.googleapis.com/auth/calendar.events` and, for sending email, `https://www.googleapis.com/auth/gmail.send`. Also enable the **Gmail API**.
 3. **Credentials → Create OAuth client ID → Web application.** Authorised redirect URI:
    `https://YOUR-DOMAIN/integrations/google/callback`
 4. Put the Client ID and Client secret into `config.php` under `google`.
@@ -34,7 +41,7 @@ When a company plans a Google Meet meeting, the app creates the event in the con
    - Supported account types: **Accounts in any organizational directory (multi-tenant)**
    - Redirect URI (Web): `https://YOUR-DOMAIN/integrations/microsoft/callback`
 2. **Certificates & secrets → New client secret.** Copy the value.
-3. **API permissions → Microsoft Graph → Delegated:** `User.Read`, `Calendars.ReadWrite`, `OnlineMeetings.ReadWrite`, `offline_access`, `openid`, `email`.
+3. **API permissions → Microsoft Graph → Delegated:** `User.Read`, `Calendars.ReadWrite`, `OnlineMeetings.ReadWrite`, `Mail.Send` (for sending email), `offline_access`, `openid`, `email`.
 4. Put the Application (client) ID and secret into `config.php` under `microsoft` (keep `tenant` as `common`).
 5. Some customer tenants require their admin to approve the app the first time. Their admin can do that from the consent prompt.
 

@@ -10,7 +10,7 @@ final class TeamController
 {
     public function index(): void
     {
-        $members = DB::all("SELECT u.*, (SELECT COUNT(*) FROM actions a WHERE a.owner_id = u.id AND a.status = 'open') AS open_items FROM users u WHERE u.org_id = ? ORDER BY FIELD(u.status,'active','invited','disabled'), u.role = 'participant', u.name", [org_id()]);
+        $members = DB::all("SELECT u.*, (SELECT COUNT(*) FROM actions a WHERE a.owner_id = u.id AND a.status <> 'done') AS open_items FROM users u WHERE u.org_id = ? ORDER BY FIELD(u.status,'active','invited','disabled'), u.role = 'participant', u.name", [org_id()]);
         $org = DB::one('SELECT * FROM organizations WHERE id = ?', [org_id()]);
         echo view('team/index', ['members' => $members, 'org' => $org, 'title' => 'Team']);
     }

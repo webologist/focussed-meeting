@@ -44,4 +44,26 @@ $wa = App\Services\Integrations::connected(org_id(), 'whatsapp');
     <div class="mfoot"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary" type="submit"><?= icon('send', 15) ?>Send reminder</button></div>
   </form>
 </dialog>
+<dialog class="dlg" id="complete-dialog" aria-labelledby="complete-title">
+  <form method="post" action="" id="complete-form">
+    <?= csrf_field() ?>
+    <input type="hidden" name="status" value="review">
+    <h2 id="complete-title">Mark as complete?</h2>
+    <p class="muted" style="margin:0"><b id="complete-item"></b></p>
+    <p class="banner" style="margin:0" id="complete-help"></p>
+    <label class="f">Note for the host <span class="hint">optional</span><textarea name="note" rows="3" maxlength="4000" placeholder="What you did, where to find it, anything they should check"></textarea></label>
+    <div class="mfoot"><button type="button" class="btn" data-close>Not yet</button><button class="btn primary" type="submit"><?= icon('check', 15) ?>Yes, it’s complete</button></div>
+  </form>
+</dialog>
+
+<dialog class="dlg" id="review-dialog" aria-labelledby="review-title">
+  <form method="post" action="" id="review-form">
+    <?= csrf_field() ?>
+    <h2 id="review-title">Approve completed item?</h2>
+    <p class="muted" style="margin:0"><b id="review-item"></b></p>
+    <p class="muted small" style="margin:0" id="review-help"></p>
+    <label class="f">Message <span class="hint">needed to send it back</span><textarea name="note" rows="3" maxlength="4000" placeholder="Thanks, or what still needs doing"></textarea></label>
+    <div class="mfoot"><button type="button" class="btn" data-close>Cancel</button><button class="btn" type="submit" id="review-back" formaction="">Send back</button><button class="btn primary" type="submit"><?= icon('check', 15) ?>Approve</button></div>
+  </form>
+</dialog>
 <script>window.FM = Object.assign(window.FM || {}, {me: <?= json_encode(explode(' ', user()['name'])[0]) ?>, base: <?= json_encode(path('')) ?>});</script>

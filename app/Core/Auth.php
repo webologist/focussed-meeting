@@ -19,7 +19,7 @@ final class Auth
                        FROM users u
                        JOIN organizations o ON o.id = u.org_id
                   LEFT JOIN user_settings s ON s.user_id = u.id
-                      WHERE u.id = ? AND u.status = 'active'", [$id]);
+                      WHERE u.id = ? AND u.status = 'active' AND o.status = 'active'", [$id]);
                 if (!self::$user) unset($_SESSION['user_id']);
             }
         }
@@ -39,7 +39,9 @@ final class Auth
 
     public static function logout(): void
     {
-        $_SESSION = [];
+        // Keep a platform-owner session (if any) signed in; end only the company-user session.
+        $keep = array_intersect_key($_SESSION, array_flip(['owner_id', 'owner_last']));
+        $_SESSION = $keep;
         session_regenerate_id(true);
         self::$user = null;
         self::$loaded = true;

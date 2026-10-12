@@ -28,6 +28,41 @@ final class Access
 
     public static function canManageMeeting(array $m): bool { return is_admin() || (int)$m['organizer_id'] === uid(); }
 
+    /** The host is the person who organised the meeting. Only the host can print its documents. */
+    public static function isHost(array $m): bool { return (int)$m['organizer_id'] === uid(); }
+
+    /** Who approves a completed item: the meeting's host for action items, otherwise whoever assigned it. */
+    public static function approverId(array $a): int
+    {
+        if ($a['meeting_id']) {
+            $host = DB::value('SELECT organizer_id FROM meetings WHERE id = ?', [$a['meeting_id']]);
+            if ($host) return (int)$host;
+        }
+        return (int)$a['created_by'];
+    }
+
+    public static function canApprove(array $a): bool { return is_admin() || self::approverId($a) === uid(); }
+
+    /** The owner can hand an item on; so can whoever assigned it, the host and admins. */
+    public static function canReassign(array $a): bool
+    {
+        return $a['status'] !== 'done' && (self::canEditAction($a) || self::approverId($a) === uid());
+    }
+
+    /** Active projects of the current company, keyed by id. */
+    public static function projects(bool $includeArchived = false): array
+    {
+        $rows = DB::all('SELECT * FROM projects WHERE org_id = ?' . ($includeArchived ? '' : " AND status = 'active'") . ' ORDER BY name', [org_id()]);
+        $out = [];
+        foreach ($rows as $r) $out[(int)$r['id']] = $r;
+        return $out;
+    }
+
+    public static function project(int $id): ?array
+    {
+        return $id ? DB::one('SELECT * FROM projects WHERE id = ? AND org_id = ?', [$id, org_id()]) : null;
+    }
+
     /** SQL fragment restricting actions (alias a) to those the user may see. */
     public static function actionScope(string $alias = 'a'): array
     {

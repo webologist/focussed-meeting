@@ -60,7 +60,7 @@ final class Notifier
                 if (!$cfg) throw new \RuntimeException('No email connected. An admin can connect one in Integrations.');
                 $atts = [];
                 foreach (json_decode((string)$m['attachments'], true) ?: [] as $a) $atts[] = ['name' => $a['name'], 'mime' => $a['mime'], 'content' => base64_decode($a['content_base64'])];
-                (new SmtpMailer($cfg))->send(['to' => $m['to_address'], 'to_name' => $m['to_name'], 'subject' => $m['subject'], 'html' => $m['body_html'], 'text' => $m['body_text'], 'attachments' => $atts]);
+                self::sendMail($m['org_id'] ? (int)$m['org_id'] : null, $cfg, ['to' => $m['to_address'], 'to_name' => $m['to_name'], 'subject' => $m['subject'], 'html' => $m['body_html'], 'text' => $m['body_text'], 'attachments' => $atts]);
             } else {
                 WhatsApp::send((int)$m['org_id'], $m['to_address'], (string)$m['body_text']);
             }
@@ -71,6 +71,15 @@ final class Notifier
             logger('Delivery failed', ['outbox' => $outboxId, 'error' => $e->getMessage()]);
             return false;
         }
+    }
+
+    /** Send one email with the company's settings: SMTP, or the Google / Microsoft account connected with OAuth. */
+    public static function sendMail(?int $orgId, array $cfg, array $msg): void
+    {
+        $transport = $cfg['transport'] ?? 'smtp';
+        if ($transport === 'google' && $orgId) GoogleCalendar::sendMail($orgId, (new SmtpMailer($cfg))->mime($msg));
+        elseif ($transport === 'microsoft' && $orgId) MicrosoftGraph::sendMail($orgId, (new SmtpMailer($cfg))->mime($msg));
+        else (new SmtpMailer($cfg))->send($msg);
     }
 
     public static function toText(string $html): string

@@ -7,7 +7,7 @@ final class Router
 {
     private array $routes = [];
 
-    /** $mw: list of middleware names: 'guest', 'auth', 'verified', 'admin'. */
+    /** $mw: list of middleware names: 'guest', 'auth', 'auth-unverified', 'admin', 'owner'. */
     public function get(string $pattern, string $handler, array $mw = []): void { $this->add('GET', $pattern, $handler, $mw); }
     public function post(string $pattern, string $handler, array $mw = []): void { $this->add('POST', $pattern, $handler, $mw); }
 
@@ -55,6 +55,9 @@ final class Router
                     break;
                 case 'auth-unverified':
                     if (!Auth::check()) redirect('login');
+                    break;
+                case 'owner':
+                    if (!Owner::check()) redirect('owner/login');
                     break;
                 case 'admin':
                     if (!is_admin()) abort(403, 'Only admins can do this. Ask an admin in your company for access.');
