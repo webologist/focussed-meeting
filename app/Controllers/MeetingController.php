@@ -73,7 +73,7 @@ final class MeetingController
 
         $errors = [];
         if ($title === '') $errors[] = 'Give the meeting a title.';
-        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) || !preg_match('/^\d{2}:\d{2}$/', $time)) $errors[] = 'Pick a date and start time.';
+        if (!valid_date($date) || !valid_time($time)) $errors[] = 'Pick a date and start time.';
         $agenda = array_values(array_filter(is_array($agenda) ? $agenda : [], fn($p) => is_array($p) && trim((string)($p['title'] ?? '')) !== ''));
         if (!$agenda) $errors[] = 'Add at least one agenda point.';
         if (!$viaEmail && !$viaWa && !$viaPersonal) $errors[] = 'Choose how to send the invite: email, WhatsApp or personal invite.';
@@ -342,7 +342,7 @@ final class MeetingController
         $inv = array_map('intval', array_column(Meetings::invitees($id), 'id'));
         $title = trim((string)input('title'));
         $deadline = (string)input('deadline');
-        if ($title === '' || !in_array($owner, $inv, true) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $deadline)) { flash('error', 'Add a description, a responsible person from the invitees and a deadline.'); redirect('meetings/' . $id . '#point-' . $pointId); }
+        if ($title === '' || !in_array($owner, $inv, true) || !valid_date($deadline)) { flash('error', 'Add a description, a responsible person from the invitees and a deadline.'); redirect('meetings/' . $id . '#point-' . $pointId); }
         $priority = in_array(input('priority'), ['high', 'medium', 'low'], true) ? input('priority') : 'medium';
         $ownerRow = Access::member($owner);
         Actions::create(['meeting_id' => $id, 'agenda_item_id' => $pointId, 'project_id' => $m['project_id'] ?: null, 'title' => $title, 'priority' => $priority,

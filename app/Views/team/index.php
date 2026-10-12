@@ -10,7 +10,7 @@ $takers = array_filter($members, fn($m) => $m['status'] === 'active');
 <?php if (is_admin()): ?>
 <form class="panel" method="post" action="<?= e(path('team/invite')) ?>"><?= csrf_field() ?>
   <div class="panel-h"><h2>Invite a member</h2><span class="faint small">They’ll get an email to register</span></div>
-  <div class="panel-b"><div class="team-add" style="grid-template-columns:minmax(0,1fr) minmax(0,1.3fr) minmax(0,1fr) 130px auto">
+  <div class="panel-b"><div class="team-add invite">
     <input type="text" name="name" required placeholder="Name" aria-label="Name">
     <input type="email" name="email" required placeholder="Email" aria-label="Email">
     <input type="tel" name="phone" placeholder="WhatsApp (optional)" aria-label="WhatsApp number">

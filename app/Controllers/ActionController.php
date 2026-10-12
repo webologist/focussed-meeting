@@ -19,7 +19,7 @@ final class ActionController
         $deadline = (string)input('deadline');
         $priority = in_array(input('priority'), ['high', 'medium', 'low'], true) ? input('priority') : 'medium';
         if ($title === '') { flash('error', 'Describe the task first.'); back(); }
-        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $deadline)) { flash('error', 'Pick a due date.'); back(); }
+        if (!valid_date($deadline)) { flash('error', 'Pick a due date.'); back(); }
         if ($ownerId !== uid() && !is_admin()) { flash('error', 'Only admins can assign tasks to other people.'); back(); }
         $owner = Access::member($ownerId);
         if (!$owner || $owner['status'] === 'disabled') { flash('error', 'Choose someone from your team.'); back(); }
@@ -187,7 +187,7 @@ final class ActionController
         $a = Access::action($id);
         if (!Access::canEditAction($a) || $a['status'] === 'done') abort(403);
         $d = (string)input('new_deadline');
-        if ($d !== '' && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $d)) { flash('error', 'That date isn’t valid.'); back(); }
+        if ($d !== '' && !valid_date($d)) { flash('error', 'That date isn’t valid.'); back(); }
         Actions::setNewDeadline($a, $d ?: null);
         flash('success', $d ? 'Deadline moved to ' . fmt_date($d) . '.' : 'Revised deadline cleared.');
         back('tracker');

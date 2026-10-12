@@ -61,6 +61,7 @@ function view(string $template, array $data = [], string $layout = 'layouts/app'
 function input(string $key, mixed $default = null): mixed
 {
     $v = $_POST[$key] ?? $_GET[$key] ?? $default;
+    if (is_array($v)) return $default; // a field sent as name[] is not a valid single value
     return is_string($v) ? trim($v) : $v;
 }
 
@@ -97,6 +98,15 @@ function user_tz(): string
 
 /** Today's date (Y-m-d) in the user's timezone. */
 function today(): string { return (new DateTime('now', new DateTimeZone(user_tz())))->format('Y-m-d'); }
+
+/** True for a real calendar date written as Y-m-d (rejects 2026-02-30 as well as free text). */
+function valid_date(string $ymd): bool
+{
+    return (bool)preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $ymd, $m) && checkdate((int)$m[2], (int)$m[3], (int)$m[1]);
+}
+
+/** True for a 24-hour time written as H:i. */
+function valid_time(string $hm): bool { return (bool)preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $hm); }
 
 function date_add_days(string $ymd, int $days): string { return (new DateTime($ymd))->modify(($days >= 0 ? '+' : '') . $days . ' days')->format('Y-m-d'); }
 

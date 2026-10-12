@@ -15,7 +15,7 @@ final class ReminderController
         $time = (string)input('time');
         $actionId = (int)input('action_id', 0);
         if ($body === '') { flash('error', 'Add a note for the reminder.'); back(); }
-        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) || !preg_match('/^\d{2}:\d{2}$/', $time)) { flash('error', 'Pick a date and time.'); back(); }
+        if (!valid_date($date) || !valid_time($time)) { flash('error', 'Pick a date and time.'); back(); }
         $at = local_to_utc($date, $time);
         if ($at <= now_utc()) { flash('error', 'Pick a time in the future.'); back(); }
         if ($actionId) Access::action($actionId);
