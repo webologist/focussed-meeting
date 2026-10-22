@@ -227,6 +227,16 @@
     });
   }
 
+  // ---- Declining a point request needs a message: say so on the spot instead of after a reload ----
+  document.addEventListener('click', e => {
+    const b = e.target.closest('.req.pending button[value="decline"]'); if (!b) return;
+    const note = b.form && b.form.elements.note; if (!note || note.value.trim() !== '') return;
+    e.preventDefault();
+    note.setCustomValidity('Add a short message so they know why you declined.');
+    note.reportValidity();
+    note.addEventListener('input', () => note.setCustomValidity(''), { once: true });
+  });
+
   // ---- SMTP presets ----
   const preset = $('#smtp-preset');
   if (preset) {
