@@ -92,7 +92,6 @@ $router->post('/team/company', 'TeamController@company', ['auth', 'admin']);
 // Integrations (admin)
 $router->get('/integrations', 'IntegrationController@index', ['auth', 'admin']);
 $router->post('/integrations/smtp', 'IntegrationController@saveSmtp', ['auth', 'admin']);
-$router->post('/integrations/brevo', 'IntegrationController@saveBrevo', ['auth', 'admin']);
 $router->post('/integrations/smtp/test', 'IntegrationController@testSmtp', ['auth', 'admin']);
 $router->post('/integrations/whatsapp', 'IntegrationController@saveWhatsApp', ['auth', 'admin']);
 $router->post('/integrations/{provider}/disconnect', 'IntegrationController@disconnect', ['auth', 'admin']);

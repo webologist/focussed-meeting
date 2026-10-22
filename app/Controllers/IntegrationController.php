@@ -14,10 +14,10 @@ use App\Services\SmtpMailer;
 final class IntegrationController
 {
     public const SMTP_PRESETS = [
+        'brevo'     => ['label' => 'Brevo (recommended)', 'host' => 'smtp-relay.brevo.com', 'port' => 587, 'encryption' => 'tls', 'user_label' => 'SMTP login', 'pass_label' => 'SMTP key', 'help' => 'In Brevo open SMTP & API > SMTP. Copy the SMTP login and click Generate a new SMTP key (not your account password or an API key). The Send-from email must be a sender verified in Brevo (Senders, domains & dedicated IPs).'],
         'gmail'     => ['label' => 'Gmail / Google Workspace', 'host' => 'smtp.gmail.com', 'port' => 587, 'encryption' => 'tls', 'help' => 'Turn on 2-step verification, then create an app password at myaccount.google.com/apppasswords and use it here.'],
         'outlook'   => ['label' => 'Outlook / Microsoft 365', 'host' => 'smtp.office365.com', 'port' => 587, 'encryption' => 'tls', 'help' => 'Your Microsoft 365 admin must allow SMTP AUTH for this mailbox. Use an app password if MFA is on.'],
         'zoho'      => ['label' => 'Zoho Mail', 'host' => 'smtp.zoho.in', 'port' => 465, 'encryption' => 'ssl', 'help' => 'Use smtp.zoho.com outside India. Generate an app-specific password if 2FA is on.'],
-        'brevo'     => ['label' => 'Brevo (Sendinblue)', 'host' => 'smtp-relay.brevo.com', 'port' => 587, 'encryption' => 'tls', 'help' => 'In Brevo go to SMTP & API > SMTP. Use the SMTP login shown there as the username and an SMTP key (not your Brevo account password) as the password. The Send-from email must be a verified sender in Brevo.'],
         'hostinger' => ['label' => 'Hostinger email', 'host' => 'smtp.hostinger.com', 'port' => 465, 'encryption' => 'ssl', 'help' => 'Use the full mailbox address and its password.'],
         'custom'    => ['label' => 'Other SMTP server', 'host' => '', 'port' => 587, 'encryption' => 'tls', 'help' => 'Ask your email provider for the SMTP host, port and security type.'],
     ];
@@ -40,58 +40,31 @@ final class IntegrationController
     {
         $existing = Integrations::get(org_id(), 'smtp')['config'] ?? [];
         $preset = array_key_exists((string)input('preset'), self::SMTP_PRESETS) ? input('preset') : 'custom';
+        $known = $preset === 'brevo' ? self::SMTP_PRESETS['brevo'] : null; // Brevo's server is fixed, so never trust the posted host
+        $keep = ($existing['preset'] ?? '') === $preset ? ($existing['password'] ?? '') : '';
         $cfg = [
             'preset'     => $preset,
-            'host'       => (string)input('host'),
-            'port'       => (int)input('port', 587),
-            'encryption' => in_array(input('encryption'), ['tls', 'ssl', 'none'], true) ? input('encryption') : 'tls',
-            'username'   => (string)input('username'),
-            'password'   => ($_POST['password'] ?? '') !== '' ? (string)$_POST['password'] : ($existing['password'] ?? ''),
-            'from_email' => mb_strtolower((string)input('from_email')),
-            'from_name'  => (string)input('from_name') ?: user()['org_name'],
-        ];
-        if ($cfg['host'] === '' || !$cfg['port']) { flash('error', 'Enter the SMTP host and port.'); redirect('integrations#email'); }
-        if (!filter_var($cfg['from_email'], FILTER_VALIDATE_EMAIL)) { flash('error', 'Enter the email address messages are sent from.'); redirect('integrations#email'); }
-        try {
-            (new SmtpMailer($cfg))->send(['to' => user()['email'], 'to_name' => user()['name'], 'subject' => 'Test email from ' . config('app.name'),
-                'html' => Notifier::layout('Your email is connected', '<p>Invites, reminders and minutes for ' . e(user()['org_name']) . ' will now be sent from <b>' . e($cfg['from_email']) . '</b>.</p>', null, null, user()['org_name'])]);
-        } catch (\Throwable $e) {
-            flash('error', 'We couldn’t send through that account: ' . $e->getMessage());
-            redirect('integrations#email');
-        }
-        Integrations::save(org_id(), 'smtp', $cfg, $cfg['from_email'], uid());
-        Audit::log('integration.connected', 'integration', null, ['provider' => 'smtp']);
-        flash('success', 'Email connected. We sent a test message to ' . user()['email'] . '.');
-        redirect('integrations#email');
-    }
-
-    /** Each company admin connects their own Brevo account: SMTP login + SMTP key + a sender verified in Brevo. */
-    public function saveBrevo(): void
-    {
-        $existing = Integrations::get(org_id(), 'smtp')['config'] ?? [];
-        $keep = ($existing['preset'] ?? '') === 'brevo' ? ($existing['password'] ?? '') : '';
-        $cfg = [
-            'preset'     => 'brevo',
-            'host'       => 'smtp-relay.brevo.com',
-            'port'       => 587,
-            'encryption' => 'tls',
+            'host'       => $known['host'] ?? trim((string)input('host')),
+            'port'       => $known['port'] ?? (int)input('port', 587),
+            'encryption' => $known['encryption'] ?? (in_array(input('encryption'), ['tls', 'ssl', 'none'], true) ? input('encryption') : 'tls'),
             'username'   => trim((string)input('username')),
             'password'   => trim((string)($_POST['password'] ?? '')) !== '' ? trim((string)$_POST['password']) : $keep,
             'from_email' => mb_strtolower(trim((string)input('from_email'))),
             'from_name'  => trim((string)input('from_name')) ?: user()['org_name'],
         ];
-        if ($cfg['username'] === '' || $cfg['password'] === '') { flash('error', 'Paste your Brevo SMTP login and SMTP key.'); redirect('integrations#brevo'); }
-        if (!filter_var($cfg['from_email'], FILTER_VALIDATE_EMAIL)) { flash('error', 'Enter a sender email that is verified in Brevo.'); redirect('integrations#brevo'); }
+        if ($cfg['host'] === '' || !$cfg['port']) { flash('error', 'Enter the SMTP host and port.'); redirect('integrations#email'); }
+        if ($cfg['username'] === '' || $cfg['password'] === '') { flash('error', $preset === 'brevo' ? 'Paste your Brevo SMTP login and SMTP key.' : 'Enter the username and password.'); redirect('integrations#email'); }
+        if (!filter_var($cfg['from_email'], FILTER_VALIDATE_EMAIL)) { flash('error', $preset === 'brevo' ? 'Enter a sender email that is verified in Brevo.' : 'Enter the email address messages are sent from.'); redirect('integrations#email'); }
         try {
             (new SmtpMailer($cfg))->send(['to' => user()['email'], 'to_name' => user()['name'], 'subject' => 'Test email from ' . config('app.name'),
-                'html' => Notifier::layout('Brevo is connected', '<p>Invites, reminders and minutes for ' . e(user()['org_name']) . ' will now be sent through your Brevo account from <b>' . e($cfg['from_email']) . '</b>.</p>', null, null, user()['org_name'])]);
+                'html' => Notifier::layout('Your email is connected', '<p>Invites, reminders and minutes for ' . e(user()['org_name']) . ' will now be sent from <b>' . e($cfg['from_email']) . '</b>.</p>', null, null, user()['org_name'])]);
         } catch (\Throwable $e) {
-            flash('error', 'Brevo rejected that: ' . $e->getMessage() . ' Check the SMTP login and key, and that the sender is verified in Brevo.');
-            redirect('integrations#brevo');
+            flash('error', ($preset === 'brevo' ? 'Brevo rejected that: ' . $e->getMessage() . ' Check the SMTP login and key, and that the sender is verified in Brevo.' : 'We couldn’t send through that account: ' . $e->getMessage()));
+            redirect('integrations#email');
         }
-        Integrations::save(org_id(), 'smtp', $cfg, $cfg['from_email'] . ' (Brevo)', uid());
-        Audit::log('integration.connected', 'integration', null, ['provider' => 'smtp', 'via' => 'brevo']);
-        flash('success', 'Brevo connected. We sent a test message to ' . user()['email'] . '.');
+        Integrations::save(org_id(), 'smtp', $cfg, $cfg['from_email'] . ($preset === 'brevo' ? ' (Brevo)' : ''), uid());
+        Audit::log('integration.connected', 'integration', null, ['provider' => 'smtp', 'via' => $preset]);
+        flash('success', 'Email connected. We sent a test message to ' . user()['email'] . '.');
         redirect('integrations#email');
     }
 

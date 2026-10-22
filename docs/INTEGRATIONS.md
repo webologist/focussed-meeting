@@ -11,12 +11,13 @@ Either way, the connect screen has **Also send invites, reminders and minutes fr
 
 Email and WhatsApp need no platform setup.
 
-## Email: Gmail, Outlook, Zoho, Hostinger or any SMTP
+## Email: Brevo, Gmail, Outlook, Zoho, Hostinger or any SMTP
 
-In Integrations → Email, pick the provider, enter the mailbox and password, and click **Connect and send test**. The connection is saved only if the test email goes through.
+In Integrations → Email, pick the provider, enter the login and password, and click **Connect and send test**. Host, port and security are filled in for you (they only show for *Other SMTP server*). The connection is saved only if the test email goes through.
 
 | Provider | Host | Port / security | Notes |
 |---|---|---|---|
+| Brevo | smtp-relay.brevo.com | 587 STARTTLS | Brevo → SMTP & API → SMTP: use the **SMTP login** and a generated **SMTP key** (not the account password or an API key). The send-from address must be a verified sender in Brevo. |
 | Gmail / Google Workspace | smtp.gmail.com | 587 STARTTLS | Needs 2-step verification and an **app password** (myaccount.google.com/apppasswords). The normal password won’t work. |
 | Outlook / Microsoft 365 | smtp.office365.com | 587 STARTTLS | The Microsoft 365 admin must enable **Authenticated SMTP** for the mailbox. |
 | Zoho Mail | smtp.zoho.in (India) / smtp.zoho.com | 465 SSL | Use an app-specific password if 2FA is on. |

@@ -233,9 +233,16 @@
     const presets = JSON.parse(preset.dataset.presets);
     preset.addEventListener('change', () => {
       const p = presets[preset.value]; if (!p) return;
-      if (p.host) $('#smtp-host').value = p.host;
+      $('#smtp-host').value = p.host;
       $('#smtp-port').value = p.port; $('#smtp-enc').value = p.encryption; $('#smtp-help').textContent = p.help;
+      $('#smtp-user-label').textContent = p.user_label || 'Username (usually your email)';
+      $('#smtp-pass-label').textContent = p.pass_label || 'Password or app password';
+      $('#smtp-adv').hidden = preset.value !== 'custom'; // host, port and security only matter for "Other SMTP server"
     });
+    $$('[data-pick-preset]').forEach(a => a.addEventListener('click', () => {
+      preset.value = a.dataset.pickPreset; preset.dispatchEvent(new Event('change'));
+      const d = preset.closest('details'); if (d) d.open = true;
+    }));
   }
 
   // ---- Chart tooltips ----
