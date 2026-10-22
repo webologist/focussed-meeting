@@ -60,6 +60,12 @@ return [
         'tenant'        => 'common',
     ],
 
+    // Translate the minutes of meeting into Hindi, Marathi and Gujarati (Google Cloud Translation API, billed per character).
+    // Google Cloud Console > enable "Cloud Translation API" > Credentials > Create API key (restrict it to that API). Leave empty to turn translation off.
+    'translate' => [
+        'google_api_key' => '',
+    ],
+
     'uploads' => [
         'max_bytes'     => 5 * 1024 * 1024,   // per image
         'max_per_note'  => 6,

@@ -53,6 +53,7 @@ $columns = [
     ['meetings', 'project_id', 'INT UNSIGNED NULL AFTER org_id'],
     ['meetings', 'sent_personal', 'TINYINT(1) NOT NULL DEFAULT 0 AFTER sent_whatsapp'],
     ['meetings', 'personal_note', 'TEXT NULL AFTER sent_personal'],
+    ['meetings', 'minutes_locked_at', 'DATETIME NULL AFTER completed_at'],
     ['agenda_items', 'request_status', "ENUM('pending','approved','declined') NULL AFTER added_in_meeting"],
     ['agenda_items', 'requested_by', 'INT UNSIGNED NULL AFTER request_status'],
     ['agenda_items', 'review_note', 'VARCHAR(500) NULL AFTER requested_by'],

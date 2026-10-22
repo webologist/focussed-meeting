@@ -14,6 +14,7 @@ use App\Services\Integrations;
 use App\Services\Meetings;
 use App\Services\MicrosoftGraph;
 use App\Services\Notifier;
+use App\Services\Translator;
 
 /**
  * Meetings: list and planner on one page, the meeting page (agenda, requests, minutes), minutes of meeting and printing.
@@ -247,16 +248,36 @@ final class MeetingController
         $isInvitee = (bool)DB::value('SELECT 1 FROM meeting_invitees WHERE meeting_id = ? AND user_id = ?', [$id, uid()]);
         if (!$canManage && !$isInvitee) abort(403);
         if ($m['status'] !== 'completed') { flash('error', 'Minutes open once the meeting is marked as over.'); redirect('meetings/' . $id); }
+        self::requireOpenMinutes($m);
         self::saveDiscussion($id, (array)($_POST['discussion'] ?? []));
         if ($canManage && isset($_POST['attendance_submitted'])) {
             $present = array_map('intval', (array)($_POST['attended'] ?? []));
             foreach (Meetings::invitees($id) as $i) DB::run('UPDATE meeting_invitees SET attended = ? WHERE meeting_id = ? AND user_id = ?', [in_array((int)$i['id'], $present, true) ? 1 : 0, $id, $i['id']]);
         }
-        DB::update('meetings', ['updated_at' => now_utc()], ['id' => $id]);
+        DB::update('meetings', ['minutes_locked_at' => now_utc(), 'updated_at' => now_utc()], ['id' => $id]); // saving locks the minutes
         Audit::log('meeting.minutes_saved', 'meeting', $id);
         $blank = (int)DB::value("SELECT COUNT(*) FROM agenda_items ai WHERE ai.meeting_id = ? AND " . Meetings::ON_AGENDA . " AND (ai.discussion IS NULL OR ai.discussion = '')", [$id]);
-        flash('success', 'Minutes saved.' . ($blank ? ' ' . plural($blank, 'point') . ' still ' . ($blank === 1 ? 'has' : 'have') . ' no minutes.' : ($canManage && !$m['mom_sent_at'] ? ' Every point has minutes. You can send the MoM now.' : '')));
+        flash('success', 'Minutes saved and locked.' . ($blank ? ' ' . plural($blank, 'point') . ' still ' . ($blank === 1 ? 'has' : 'have') . ' no minutes.' : ($canManage && !$m['mom_sent_at'] ? ' Every point has minutes. You can send the MoM now.' : '')));
         redirect('meetings/' . $id);
+    }
+
+    /** Saved minutes are locked. Only the host or an admin can unlock them to make changes. */
+    public function unlockMinutes(int $id): void
+    {
+        $m = Access::meeting($id);
+        if (!Access::canManageMeeting($m)) abort(403, 'Only the host or an admin can unlock the minutes.');
+        if ($m['status'] !== 'completed' || empty($m['minutes_locked_at'])) redirect('meetings/' . $id);
+        DB::update('meetings', ['minutes_locked_at' => null, 'updated_at' => now_utc()], ['id' => $id]);
+        Audit::log('meeting.minutes_unlocked', 'meeting', $id);
+        flash('success', 'Minutes unlocked. Save them again when you are done.');
+        redirect('meetings/' . $id);
+    }
+
+    private static function requireOpenMinutes(array $m): void
+    {
+        if (empty($m['minutes_locked_at'])) return;
+        flash('error', 'The minutes are saved and locked. ' . (Access::canManageMeeting($m) ? 'Click Edit minutes to change them.' : 'The host or an admin can unlock them.'));
+        redirect('meetings/' . $m['id']);
     }
 
     /** A point that came up during the meeting, added to the minutes afterwards. */
@@ -268,6 +289,7 @@ final class MeetingController
         if ($m['status'] !== 'completed') { flash('error', 'Before the meeting, ask the host to add a point instead.'); redirect('meetings/' . $id); }
         $title = trim((string)input('title'));
         if ($title === '') redirect('meetings/' . $id);
+        self::requireOpenMinutes($m);
         self::saveDiscussion($id, (array)($_POST['discussion'] ?? []));
         $pos = (int)DB::value('SELECT COALESCE(MAX(position), 0) + 1 FROM agenda_items WHERE meeting_id = ?', [$id]);
         $pid = DB::insert('agenda_items', ['meeting_id' => $id, 'position' => $pos, 'title' => mb_substr($title, 0, 250), 'subpoints' => '[]', 'added_in_meeting' => 1, 'updated_by' => uid(), 'updated_at' => now_utc()]);
@@ -309,6 +331,7 @@ final class MeetingController
     {
         $m = Access::meeting($id);
         if (!Access::canManageMeeting($m)) abort(403, 'Only the host or an admin can review point requests.');
+        self::requireOpenMinutes($m);
         $row = DB::one("SELECT * FROM agenda_items WHERE id = ? AND meeting_id = ? AND request_status IS NOT NULL", [$item, $id]);
         if (!$row) abort(404);
         $decision = input('decision') === 'approve' ? 'approved' : (input('decision') === 'decline' ? 'declined' : null);
@@ -334,6 +357,7 @@ final class MeetingController
     {
         $m = Access::meeting($id);
         if (!Access::canManageMeeting($m)) abort(403, 'Only the host or an admin can assign action items.');
+        self::requireOpenMinutes($m);
         $pointId = (int)input('agenda_item_id');
         if (!DB::value('SELECT 1 FROM agenda_items ai WHERE ai.id = ? AND ai.meeting_id = ? AND ' . Meetings::ON_AGENDA, [$pointId, $id])) abort(404);
         // Keep any minutes typed on the page before the action was added
@@ -366,7 +390,7 @@ final class MeetingController
     public function mom(int $id): void
     {
         $m = Access::meeting($id);
-        echo view('meetings/mom', self::momData($m) + ['title' => 'Minutes: ' . $m['title']]);
+        echo self::momView('meetings/mom', $m, input('lang'), ['title' => 'Minutes: ' . $m['title']]);
     }
 
     public function sendMom(int $id): void
@@ -374,18 +398,33 @@ final class MeetingController
         $m = Access::meeting($id);
         if (!Access::canManageMeeting($m)) abort(403);
         if ($m['status'] !== 'completed') { flash('error', 'Mark the meeting as over and record the minutes first.'); redirect('meetings/' . $id); }
-        $d = self::momData($m);
-        $body = View::partial('meetings/_mom_email', $d);
+        $lang = Translator::configured() ? Translator::valid(input('lang')) : null;
+        $compose = function (callable $t) use ($m, $id): array {
+            $d = self::momData($m, $t);
+            return [
+                'body' => View::partial('meetings/_mom_email', $d),
+                'title' => $t('Minutes of meeting') . ': ' . $t($m['title']),
+                'open' => $t('Open the minutes'),
+                'wa' => $t('The minutes of this meeting are ready') . ': ' . $t($m['title']),
+                'invitees' => $d['invitees'],
+            ];
+        };
+        try {
+            $mail = $lang ? Translator::render($lang, $compose) : $compose(fn($s) => (string)$s);
+        } catch (\Throwable $e) {
+            flash('error', 'Couldn’t translate the minutes, so nothing was sent. ' . $e->getMessage());
+            redirect('meetings/' . $id . '/mom');
+        }
         $count = 0;
-        foreach ($d['invitees'] as $i) {
-            Notifier::email(org_id(), $i['email'], $i['name'], 'Minutes: ' . $m['title'] . ' (' . fmt_date($m['meeting_date'], false) . ')', Notifier::layout('Minutes of meeting: ' . $m['title'], $body, 'Open in ' . config('app.name'), url('meetings/' . $id . '/mom'), user()['org_name']));
-            if ($m['sent_whatsapp'] && $i['phone']) Notifier::whatsapp(org_id(), (string)$i['phone'], $i['name'], "Minutes of \"{$m['title']}\" are ready: " . url('meetings/' . $id . '/mom'));
+        foreach ($mail['invitees'] as $i) {
+            Notifier::email(org_id(), $i['email'], $i['name'], 'Minutes: ' . $m['title'] . ' (' . fmt_date($m['meeting_date'], false) . ')', Notifier::layout($mail['title'], $mail['body'], $lang ? $mail['open'] : 'Open in ' . config('app.name'), url('meetings/' . $id . '/mom', ['lang' => $lang]), user()['org_name']));
+            if ($m['sent_whatsapp'] && $i['phone']) Notifier::whatsapp(org_id(), (string)$i['phone'], $i['name'], $lang ? $mail['wa'] . ': ' . url('meetings/' . $id . '/mom', ['lang' => $lang]) : "Minutes of \"{$m['title']}\" are ready: " . url('meetings/' . $id . '/mom'));
             if ((int)$i['id'] !== uid()) Notifier::inApp((int)$i['id'], 'Minutes of "' . $m['title'] . '" are ready', 'meetings/' . $id . '/mom');
             $count++;
         }
         DB::update('meetings', ['mom_sent_at' => now_utc()], ['id' => $id]);
         Audit::log('meeting.mom_sent', 'meeting', $id);
-        flash('success', 'Minutes sent to ' . plural($count, 'person', 'people') . '.');
+        flash('success', 'Minutes sent to ' . plural($count, 'person', 'people') . ($lang ? ' in ' . Translator::LANGS[$lang] : '') . '.');
         redirect('meetings/' . $id . '/mom');
     }
 
@@ -419,7 +458,7 @@ final class MeetingController
     public function printMom(int $id): void
     {
         $m = self::hostMeeting($id);
-        echo view('meetings/_mom_sheet', self::momData($m) + ['title' => 'Minutes: ' . $m['title'], 'print' => true], 'layouts/print');
+        echo self::momView('meetings/_mom_sheet', $m, input('lang'), ['title' => 'Minutes: ' . $m['title'], 'print' => true], 'layouts/print');
     }
 
     public function ics(int $id): void
@@ -455,7 +494,20 @@ final class MeetingController
         return explode(' ', (string)(DB::value('SELECT name FROM users WHERE id = ?', [$userId]) ?? 'them'))[0];
     }
 
-    private static function momData(array $m): array
+    /** Draws a minutes view, translated when a language is chosen. Falls back to English with a note if translation isn't set up or fails. */
+    private static function momView(string $template, array $m, mixed $lang, array $extra = [], ?string $layout = 'layouts/app'): string
+    {
+        $lang = Translator::valid($lang);
+        $extra += ['lang' => $lang, 'translateReady' => Translator::configured(), 'translateError' => null];
+        if (!$lang || !$extra['translateReady']) return View::render($template, self::momData($m) + $extra, $layout);
+        try {
+            return (string)Translator::render($lang, fn(callable $t) => View::render($template, self::momData($m, $t) + $extra, $layout));
+        } catch (\Throwable $e) {
+            return View::render($template, self::momData($m) + ['translateError' => $e->getMessage()] + $extra, $layout);
+        }
+    }
+
+    private static function momData(array $m, ?callable $t = null): array
     {
         $id = (int)$m['id'];
         $agenda = Meetings::agenda($id);
@@ -466,7 +518,8 @@ final class MeetingController
         $signature = (string)DB::value('SELECT signature FROM user_settings WHERE user_id = ?', [$m['organizer_id']]);
         $organizerTitle = (string)DB::value('SELECT title FROM users WHERE id = ?', [$m['organizer_id']]);
         $orgName = (string)DB::value('SELECT name FROM organizations WHERE id = ?', [$m['org_id']]);
-        return ['m' => $m, 'agenda' => $agenda, 'invitees' => $invitees, 'actions' => $ordered, 'canManage' => Access::canManageMeeting($m), 'isHost' => Access::isHost($m),
+        $declined = array_values(array_filter(Meetings::requests($id), fn($r) => $r['request_status'] === 'declined'));
+        return ['t' => $t ?? fn($s) => (string)$s, 'm' => $m, 'agenda' => $agenda, 'declined' => $declined, 'invitees' => $invitees, 'actions' => $ordered, 'canManage' => Access::canManageMeeting($m), 'isHost' => Access::isHost($m),
             'signature' => $signature, 'organizerTitle' => $organizerTitle, 'orgName' => $orgName, 'project' => Meetings::project($m)];
     }
 }

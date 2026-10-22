@@ -15,6 +15,7 @@ function url(string $path = '', array $query = []): string
 {
     $base = rtrim((string)config('app.url'), '/');
     $u = $base . '/' . ltrim($path, '/');
+    $query = array_filter($query, fn($v) => $v !== null);
     return $query ? $u . '?' . http_build_query($query) : $u;
 }
 
@@ -23,6 +24,7 @@ function path(string $p = '', array $query = []): string
 {
     $basePath = rtrim((string)parse_url((string)config('app.url'), PHP_URL_PATH), '/');
     $u = $basePath . '/' . ltrim($p, '/');
+    $query = array_filter($query, fn($v) => $v !== null);
     return $query ? $u . '?' . http_build_query($query) : $u;
 }
 
@@ -171,7 +173,7 @@ function person_chip(array $person, int $size = 22): string
     return '<span class="person">' . avatar($person, $size) . '<span>' . e($name) . '</span></span>';
 }
 
-function pri_pill(string $p): string { return '<span class="pill p-' . e($p) . '"><span class="dot"></span>' . e(ucfirst($p)) . '</span>'; }
+function pri_pill(string $p, ?callable $t = null): string { return '<span class="pill p-' . e($p) . '"><span class="dot"></span>' . e($t ? $t(ucfirst($p)) : ucfirst($p)) . '</span>'; }
 
 function icon(string $name, int $size = 16): string { return App\Core\Icons::svg($name, $size); }
 

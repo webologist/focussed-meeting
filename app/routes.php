@@ -53,6 +53,7 @@ $router->post('/meetings/{id}/complete', 'MeetingController@complete', ['auth'])
 $router->post('/meetings/{id}/cancel', 'MeetingController@cancel', ['auth']);
 $router->post('/meetings/{id}/resend', 'MeetingController@resend', ['auth']);
 $router->post('/meetings/{id}/minutes', 'MeetingController@saveMinutes', ['auth']);
+$router->post('/meetings/{id}/minutes/unlock', 'MeetingController@unlockMinutes', ['auth']);
 $router->post('/meetings/{id}/points', 'MeetingController@addPoint', ['auth']);
 $router->post('/meetings/{id}/requests', 'MeetingController@requestPoint', ['auth']);
 $router->post('/meetings/{id}/requests/{item}/review', 'MeetingController@reviewRequest', ['auth']);

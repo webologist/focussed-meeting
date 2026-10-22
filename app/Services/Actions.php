@@ -17,12 +17,13 @@ final class Actions
 
     public static function isOverdue(array $a): bool { return self::isActive($a) && self::effDeadline($a) < today(); }
 
-    public static function statusPill(array $a): string
+    public static function statusPill(array $a, ?callable $t = null): string
     {
-        if ($a['status'] === 'done') return '<span class="pill s-done">Done</span>';
-        if ($a['status'] === 'review') return '<span class="pill s-review">Awaiting approval</span>';
-        if (self::isOverdue($a)) return '<span class="pill p-high">Overdue</span>';
-        return $a['status'] === 'progress' ? '<span class="pill s-sched">In progress</span>' : '<span class="pill s-neutral">To do</span>';
+        $l = fn(string $s) => e($t ? $t($s) : $s);
+        if ($a['status'] === 'done') return '<span class="pill s-done">' . $l('Done') . '</span>';
+        if ($a['status'] === 'review') return '<span class="pill s-review">' . $l('Awaiting approval') . '</span>';
+        if (self::isOverdue($a)) return '<span class="pill p-high">' . $l('Overdue') . '</span>';
+        return $a['status'] === 'progress' ? '<span class="pill s-sched">' . $l('In progress') . '</span>' : '<span class="pill s-neutral">' . $l('To do') . '</span>';
     }
 
     public static function blockers(int $actionId): array

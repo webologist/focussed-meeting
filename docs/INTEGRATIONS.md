@@ -48,6 +48,19 @@ When a company plans a Google Meet meeting, the app creates the event in the con
 
 Teams meetings need a work or school Microsoft 365 account with Teams. Personal Outlook.com accounts can’t create Teams meetings through Graph.
 
+## Minutes in Hindi, Marathi or Gujarati (Google Cloud Translation)
+
+The minutes of meeting page has **English | हिन्दी | मराठी | ગુજરાતી** links. The language also applies to the print view (host only) and to **Send MoM to attendees**, which emails the minutes in the language shown. Names, emails and links are left as they are. Translations are machine-made, so the page says to check important wording.
+
+Set it up once, for the whole platform:
+
+1. In https://console.cloud.google.com open your project, enable **Cloud Translation API** and turn billing on (it is charged per character, with a monthly free allowance).
+2. **Credentials → Create credentials → API key**, and restrict it to the Cloud Translation API.
+3. Put it in `config/config.php`: `'translate' => ['google_api_key' => 'YOUR-KEY']` (see `config.sample.php`).
+4. Run `local\update-db.bat` (or `php database/migrate.php`). This creates the `translations` cache table, so each text is translated only once.
+
+Until a key is set, choosing a language shows a note and the minutes stay in English.
+
 ## WhatsApp Business (optional)
 
 1. In https://business.facebook.com set up WhatsApp and add a phone number (Meta → WhatsApp → API setup).

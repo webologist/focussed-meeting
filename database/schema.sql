@@ -155,6 +155,7 @@ CREATE TABLE meetings (
   invite_sent_at     DATETIME NULL,
   mom_sent_at        DATETIME NULL,
   completed_at       DATETIME NULL,
+  minutes_locked_at  DATETIME NULL,              -- set when minutes are saved; the host or an admin can unlock them
   created_at         DATETIME NOT NULL,
   updated_at         DATETIME NULL,
   KEY idx_meetings_org_date (org_id, meeting_date),
@@ -371,3 +372,13 @@ CREATE TABLE platform_audit (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 SET foreign_key_checks = 1;
+
+-- Cached machine translations of minutes (Hindi, Marathi, Gujarati), so each text is translated only once
+CREATE TABLE translations (
+  id          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  lang        VARCHAR(8) NOT NULL,
+  src_hash    CHAR(40) NOT NULL,              -- sha1 of the English text
+  translated  MEDIUMTEXT NOT NULL,
+  created_at  DATETIME NOT NULL,
+  UNIQUE KEY uq_translations (lang, src_hash)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
