@@ -8,6 +8,7 @@ $total = array_sum(array_map(fn($p) => (int)$p['minutes_allotted'], $agenda));
 $rsvpLabels = ['pending' => 'No reply', 'yes' => 'Going', 'no' => 'Not going', 'maybe' => 'Maybe'];
 $others = array_values(array_filter($invitees, fn($i) => (int)$i['id'] !== (int)$m['organizer_id']));
 $locked = !empty($m['minutes_locked_at']);
+$team = array_filter(\App\Services\Access::members(), fn($u) => $u['status'] !== 'disabled');
 $pending = array_values(array_filter($requests, fn($r) => $r['request_status'] === 'pending'));
 $reviewed = array_values(array_filter($requests, fn($r) => $r['request_status'] !== 'pending'));
 $mine = array_values(array_filter($requests, fn($r) => (int)$r['requested_by'] === uid()));
@@ -180,8 +181,8 @@ $requestsPanel = function () use ($m, $pending, $reviewed, $reqPill, $locked): s
 
 <?php else: ?>
 <?php if ($locked): ?>
-<div class="banner" style="align-items:center;justify-content:space-between"><div><b>Minutes saved and locked</b> on <?= e(fmt_local($m['minutes_locked_at'], 'j M Y, g:i A')) ?>. <?= $canManage ? 'Unlock them if you need to make changes.' : 'The host or an admin can unlock them for changes.' ?></div>
-  <?php if ($canManage): ?><form method="post" action="<?= e(path('meetings/' . $m['id'] . '/minutes/unlock')) ?>" class="inline"><?= csrf_field() ?><button class="btn sm" type="submit">Edit minutes</button></form><?php endif; ?></div>
+<div class="banner" style="align-items:center;justify-content:space-between"><div><b>Minutes saved and locked</b> on <?= e(fmt_local($m['minutes_locked_at'], 'j M Y, g:i A')) ?>. <?= $isHost ? 'Unlock them if you need to make changes. You can still assign tasks to your team.' : 'Only the host (' . e($m['organizer_name']) . ') can unlock them for changes.' ?></div>
+  <?php if ($isHost): ?><form method="post" action="<?= e(path('meetings/' . $m['id'] . '/minutes/unlock')) ?>" class="inline"><?= csrf_field() ?><button class="btn sm" type="submit">Edit minutes</button></form><?php endif; ?></div>
 <?php endif; ?>
 <?php if ($canManage && ($pending || $reviewed)): ?><?= $requestsPanel() ?><?php endif; ?>
 <form method="post" action="<?= e(path('meetings/' . $m['id'] . '/minutes')) ?>" id="<?= $locked ? 'minutes-view' : 'minutes-form' ?>" class="stack">
@@ -205,15 +206,15 @@ $requestsPanel = function () use ($m, $pending, $reviewed, $reqPill, $locked): s
         <label class="f">Minutes discussed<textarea name="discussion[<?= (int)$p['id'] ?>]" data-point="<?= e($p['title']) ?>" placeholder="What was discussed and decided on this point" <?= !$locked && ($isInvitee || $canManage) ? '' : 'readonly' ?>><?= e($p['discussion']) ?></textarea></label>
         <div class="stack" style="gap:6px"><div class="eyebrow">Action items (<?= count($pa) ?>)</div>
           <div class="actions-mini">
-            <?php if (!$pa && (!$canManage || $locked)): ?><div class="act faint">No action items yet.</div><?php endif; ?>
+            <?php if (!$pa && !$isHost): ?><div class="act faint">No action items yet.</div><?php endif; ?>
             <?php foreach ($pa as $x): ?>
             <div class="act"><a class="linkish <?= $x['status'] === 'done' ? 'strike' : '' ?>" href="<?= e(path('actions/' . $x['id'], ['from' => 'meetings'])) ?>"><?= e($x['title']) ?></a><?= pri_pill($x['priority']) ?><?= person_chip(['id' => $x['owner_id'], 'name' => $x['owner_name']]) ?><span class="mono" style="font-size:.82rem;white-space:nowrap"><?= e(fmt_date(Actions::effDeadline($x), false)) ?></span><?= Actions::statusPill($x) ?></div>
             <?php endforeach; ?>
-            <?php if ($canManage && !$locked): ?>
+            <?php if ($isHost): ?>
             <div class="add-act" data-action-form="<?= (int)$p['id'] ?>">
               <label class="f full">Action item<input type="text" data-f="title" placeholder="What needs to be done" maxlength="250"></label>
               <label class="f">Priority<select data-f="priority"><option value="high">High</option><option value="medium" selected>Medium</option><option value="low">Low</option></select></label>
-              <label class="f">Responsible<select data-f="owner_id"><?php foreach ($invitees as $i): ?><option value="<?= (int)$i['id'] ?>" <?= (int)($p['presenter_id'] ?? 0) === (int)$i['id'] ? 'selected' : '' ?>><?= e($i['name']) ?></option><?php endforeach; ?></select></label>
+              <label class="f">Assign to<select data-f="owner_id"><?php foreach ($team as $i): ?><option value="<?= (int)$i['id'] ?>" <?= (int)($p['presenter_id'] ?? 0) === (int)$i['id'] ? 'selected' : '' ?>><?= e($i['name']) ?></option><?php endforeach; ?></select></label>
               <label class="f">Deadline<input type="date" data-f="deadline" value="<?= e(date_add_days(today(), 7)) ?>"></label>
               <button type="button" class="btn sm primary" data-add-action="<?= (int)$p['id'] ?>">Add</button>
             </div>
@@ -239,7 +240,7 @@ $requestsPanel = function () use ($m, $pending, $reviewed, $reqPill, $locked): s
   <form method="dialog" class="stack">
     <h2 id="mc-title">Save the minutes?</h2>
     <ul class="mc-summary" id="mc-summary"></ul>
-    <p class="muted small" style="margin:0">Everyone invited can see the minutes. Saving locks them; the host or an admin can unlock them if changes are needed.</p>
+    <p class="muted small" style="margin:0">Everyone invited can see the minutes. Saving locks them; only the host can unlock them if changes are needed.</p>
     <div class="mfoot"><button class="btn" value="cancel">Keep editing</button><button class="btn primary" value="save"><?= icon('check', 15) ?>Yes, save minutes</button></div>
   </form>
 </dialog>

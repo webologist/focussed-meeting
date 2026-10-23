@@ -261,11 +261,11 @@ final class MeetingController
         redirect('meetings/' . $id);
     }
 
-    /** Saved minutes are locked. Only the host or an admin can unlock them to make changes. */
+    /** Saved minutes are locked. Only the host (the meeting initiator) can unlock them to make changes. */
     public function unlockMinutes(int $id): void
     {
         $m = Access::meeting($id);
-        if (!Access::canManageMeeting($m)) abort(403, 'Only the host or an admin can unlock the minutes.');
+        if (!Access::isHost($m)) abort(403, 'Only the host (' . $m['organizer_name'] . ') can unlock the minutes.');
         if ($m['status'] !== 'completed' || empty($m['minutes_locked_at'])) redirect('meetings/' . $id);
         DB::update('meetings', ['minutes_locked_at' => null, 'updated_at' => now_utc()], ['id' => $id]);
         Audit::log('meeting.minutes_unlocked', 'meeting', $id);
@@ -276,7 +276,7 @@ final class MeetingController
     private static function requireOpenMinutes(array $m): void
     {
         if (empty($m['minutes_locked_at'])) return;
-        flash('error', 'The minutes are saved and locked. ' . (Access::canManageMeeting($m) ? 'Click Edit minutes to change them.' : 'The host or an admin can unlock them.'));
+        flash('error', 'The minutes are saved and locked. ' . (Access::isHost($m) ? 'Click Edit minutes to change them.' : 'Only the host (' . $m['organizer_name'] . ') can unlock them.'));
         redirect('meetings/' . $m['id']);
     }
 
@@ -356,17 +356,16 @@ final class MeetingController
     public function addAction(int $id): void
     {
         $m = Access::meeting($id);
-        if (!Access::canManageMeeting($m)) abort(403, 'Only the host or an admin can assign action items.');
-        self::requireOpenMinutes($m);
+        if (!Access::isHost($m)) abort(403, 'Only the host (' . $m['organizer_name'] . ') can assign action items.');
         $pointId = (int)input('agenda_item_id');
         if (!DB::value('SELECT 1 FROM agenda_items ai WHERE ai.id = ? AND ai.meeting_id = ? AND ' . Meetings::ON_AGENDA, [$pointId, $id])) abort(404);
         // Keep any minutes typed on the page before the action was added
-        self::saveDiscussion($id, (array)($_POST['discussion'] ?? []));
+        if (empty($m['minutes_locked_at'])) self::saveDiscussion($id, (array)($_POST['discussion'] ?? []));
         $owner = (int)input('owner_id');
-        $inv = array_map('intval', array_column(Meetings::invitees($id), 'id'));
+        $inv = array_map('intval', array_column(array_filter(Access::members(), fn($u) => $u['status'] !== 'disabled'), 'id'));
         $title = trim((string)input('title'));
         $deadline = (string)input('deadline');
-        if ($title === '' || !in_array($owner, $inv, true) || !valid_date($deadline)) { flash('error', 'Add a description, a responsible person from the invitees and a deadline.'); redirect('meetings/' . $id . '#point-' . $pointId); }
+        if ($title === '' || !in_array($owner, $inv, true) || !valid_date($deadline)) { flash('error', 'Add a description, a responsible person from your team and a deadline.'); redirect('meetings/' . $id . '#point-' . $pointId); }
         $priority = in_array(input('priority'), ['high', 'medium', 'low'], true) ? input('priority') : 'medium';
         $ownerRow = Access::member($owner);
         Actions::create(['meeting_id' => $id, 'agenda_item_id' => $pointId, 'project_id' => $m['project_id'] ?: null, 'title' => $title, 'priority' => $priority,
