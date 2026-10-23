@@ -5,3 +5,4 @@ storage/uploads/*
 !storage/**/.gitkeep
 .DS_Store
 storage/mysql/
+config/cacert.pem

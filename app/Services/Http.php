@@ -10,6 +10,8 @@ final class Http
     {
         $ch = curl_init($url);
         $headers = $opts['headers'] ?? [];
+        // Some local PHP installs (Windows) ship without trusted certificates. Use config/cacert.pem there if it exists.
+        if (!ini_get('curl.cainfo') && !ini_get('openssl.cafile') && is_file(BASE_PATH . '/config/cacert.pem')) curl_setopt($ch, CURLOPT_CAINFO, BASE_PATH . '/config/cacert.pem');
         curl_setopt_array($ch, [
             CURLOPT_CUSTOMREQUEST  => $method,
             CURLOPT_RETURNTRANSFER => true,

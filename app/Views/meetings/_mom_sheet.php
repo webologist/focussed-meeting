@@ -22,7 +22,7 @@ $lead = 'The meeting ' . $m['title'] . ' was held on ' . $when . ($m['platform']
     <dt><?= e($t('Date & time')) ?></dt><dd><?= e($t($when . ' (' . (int)$m['duration_min'] . ' min)')) ?></dd>
     <dt><?= e($t('Venue')) ?></dt><dd style="overflow-wrap:anywhere"><?= e($where) ?></dd>
     <?php if (!empty($project)): ?><dt><?= e($t('Project')) ?></dt><dd><?= e($t($project['name'])) ?></dd><?php endif; ?>
-    <dt><?= e($t('Chaired by')) ?></dt><dd><?= e($m['organizer_name']) ?><?= !empty($organizerTitle) ? ', ' . e($t($organizerTitle)) : '' ?></dd>
+    <dt><?= e($lang ? $t('Chairperson') : 'Chaired by') ?></dt><dd><?= e($m['organizer_name']) ?><?= !empty($organizerTitle) ? ', ' . e($t($organizerTitle)) : '' ?></dd>
   </dl>
 
   <section class="formal"><h3><?= e($t('Attendance')) ?></h3>
@@ -30,7 +30,7 @@ $lead = 'The meeting ' . $m['title'] . ' was held on ' . $when . ($m['platform']
     <?php else: ?><p class="formal-lead">The meeting <b><?= e($m['title']) ?></b> was held on <?= e($when) ?><?= $m['platform'] === 'inperson' ? ' at ' . e($m['location'] ?: 'the office') : ' over ' . e(platform_label($m['platform'])) ?>, chaired by <?= e($m['organizer_name']) ?>. <?= count($present) ?> of <?= count($invitees) ?> invited members were present, as recorded below.</p><?php endif; ?>
     <div class="tbl-wrap"><table class="compact att"><thead><tr><th>#</th><th><?= e($t('Name')) ?></th><th><?= e($t('Designation')) ?></th><th><?= e($t('Role')) ?></th><th><?= e($t('Attendance')) ?></th></tr></thead><tbody>
       <?php foreach (array_values($roster) as $n => $i): $isChair = (int)$i['id'] === (int)$m['organizer_id']; ?>
-      <tr><td class="mono"><?= $n + 1 ?></td><td><?= e($i['name']) ?></td><td><?= e($t($i['title'] ?: '—')) ?></td><td><?= e($t($isChair ? 'Chair' : 'Member')) ?></td>
+      <tr><td class="mono"><?= $n + 1 ?></td><td><?= e($i['name']) ?></td><td><?= e($t($i['title'] ?: '—')) ?></td><td><?= e($isChair ? ($lang ? $t('Chairperson') : 'Chair') : $t('Member')) ?></td>
         <td><?= (int)$i['attended'] === 1 ? '<span class="pill s-done">' . e($t('Present')) . '</span>' : '<span class="pill s-neutral">' . e($t('Absent')) . '</span>' ?></td></tr>
       <?php endforeach; ?>
     </tbody></table></div>
