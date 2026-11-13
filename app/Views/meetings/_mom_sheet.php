@@ -10,7 +10,7 @@ $day = gmdate('l', strtotime($m['meeting_date'] . ' 00:00:00 UTC'));
 // Host first, then everyone else by name
 $roster = array_merge(array_filter($invitees, fn($i) => (int)$i['id'] === (int)$m['organizer_id']), array_filter($invitees, fn($i) => (int)$i['id'] !== (int)$m['organizer_id']));
 $p = !empty($print);
-$when = $day . ', ' . fmt_date($m['meeting_date']) . ', ' . fmt_time($m['start_time']);
+$when = $day . ', ' . fmt_date($m['meeting_date']) . ', ' . fmt_range($m);
 $lead = 'The meeting ' . $m['title'] . ' was held on ' . $when . ($m['platform'] === 'inperson' ? ' at ' . ($m['location'] ?: 'the office') : ' over ' . platform_label($m['platform'])) . ', chaired by ' . $m['organizer_name'] . '. ' . count($present) . ' of ' . count($invitees) . ' invited members were present, as recorded below.';
 ?>
 <article class="<?= $p ? 'paper' : 'mom' ?>" id="mom"<?= $lang ? ' lang="' . e($lang) . '"' : '' ?>>

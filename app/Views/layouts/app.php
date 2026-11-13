@@ -86,6 +86,7 @@ $navBtn = function (array $n) use ($section) {
     <?= $content ?>
   </div></main>
 </div>
+<script>window.FM = Object.assign(window.FM || {}, {base: <?= json_encode(path('')) ?>});</script>
 <script src="<?= e(asset('app.js')) ?>"></script>
 </body>
 </html>

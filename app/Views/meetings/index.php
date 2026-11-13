@@ -4,7 +4,11 @@ $list = $tab === 'past' ? $past : $up;
 $pl = $_SESSION['_planner'] ?? [];
 $pf = fn(string $k, string $d = '') => (string)($pl[$k] ?? $_GET[$k] ?? $d);
 $defPlatform = $pf('platform', $settings['default_platform'] ?? 'meet');
-$defDuration = (int)$pf('duration', (string)($settings['default_duration'] ?? 30));
+$defDuration = (int)($settings['default_duration'] ?? 30);
+$defStart = valid_time($pf('time', '11:00')) ? $pf('time', '11:00') : '11:00';
+$defEnd = valid_time($pf('end_time')) ? $pf('end_time') : min_to_time(time_to_min($defStart) + $defDuration);
+$defRepeat = isset(Meetings::REPEATS[$pf('repeat', 'none')]) ? $pf('repeat', 'none') : 'none';
+$defUntil = $pf('repeat_until');
 $googleOk = isset($ints['google']); $msOk = isset($ints['microsoft']); $waOk = isset($ints['whatsapp']);
 $emailOk = isset($ints['smtp']) || config('mail.fallback_for_companies');
 $selProject = (int)$pf('project_id', (string)($projectId ?: ''));
@@ -21,9 +25,10 @@ $tabUrl = fn(string $t) => path('meetings', array_filter(['tab' => $t === 'past'
   <div class="qa-bar mt-bar" style="border-radius:12px;border-bottom:0">
     <input class="qa-text" type="text" name="title" placeholder="Plan a meeting: type a title" aria-label="Meeting title">
     <input type="date" name="date" value="<?= e(date_add_days(today(), 1)) ?>" aria-label="Date">
-    <input type="time" name="time" value="11:00" aria-label="Start time">
+    <input type="time" name="time" value="<?= e($defStart) ?>" aria-label="From time" title="From" data-t-start>
+    <span class="faint small t-sep">to</span>
+    <input type="time" name="end_time" value="<?= e($defEnd) ?>" aria-label="To time" title="To" data-t-end>
     <select name="platform" aria-label="Where"><?php foreach (['meet', 'teams', 'inperson'] as $p): ?><option value="<?= $p ?>" <?= $defPlatform === $p ? 'selected' : '' ?>><?= e(platform_label($p)) ?></option><?php endforeach; ?></select>
-    <select name="duration" aria-label="Duration"><?php foreach ([15, 30, 45, 60, 90, 120] as $n): ?><option value="<?= $n ?>" <?= $defDuration === $n ? 'selected' : '' ?>><?= $n ?> min</option><?php endforeach; ?></select>
     <button class="btn primary icon-only" type="submit" aria-label="Add agenda and invitees" title="Add agenda and invitees"><?= icon('plus', 14) ?></button>
   </div>
 </form>
@@ -40,9 +45,16 @@ $tabUrl = fn(string $t) => path('meetings', array_filter(['tab' => $t === 'past'
         <label class="f">Meeting title<input type="text" name="title" id="d-title" value="<?= e($pf('title')) ?>" required maxlength="200" placeholder="e.g. Vendor contract review" data-preview></label>
         <div class="fields">
           <label class="f">Date<input type="date" name="date" id="d-date" value="<?= e($pf('date', date_add_days(today(), 1))) ?>" required data-preview></label>
-          <label class="f">Start time<input type="time" name="time" id="d-time" value="<?= e($pf('time', '11:00')) ?>" required data-preview></label>
-          <label class="f">Duration<select name="duration" id="d-dur" data-preview><?php foreach ([15, 30, 45, 60, 90, 120] as $n): ?><option value="<?= $n ?>" <?= $defDuration === $n ? 'selected' : '' ?>><?= $n ?> min</option><?php endforeach; ?></select></label>
+          <label class="f">From<input type="time" name="time" id="d-time" value="<?= e($defStart) ?>" required data-preview data-t-start></label>
+          <label class="f">To<input type="time" name="end_time" id="d-end" value="<?= e($defEnd) ?>" required data-preview data-t-end></label>
         </div>
+        <div class="fields">
+          <label class="f">Repeat<select name="repeat" id="d-repeat" data-preview>
+            <option value="none">Does not repeat</option>
+            <?php foreach (Meetings::REPEATS as $k => $lbl): ?><option value="<?= e($k) ?>" <?= $defRepeat === $k ? 'selected' : '' ?>><?= e($lbl) ?></option><?php endforeach; ?></select></label>
+          <label class="f" id="repeat-until-wrap" <?= $defRepeat === 'none' ? 'hidden' : '' ?>>Repeat until<input type="date" name="repeat_until" id="d-until" value="<?= e($defUntil) ?>" data-preview></label>
+        </div>
+        <p class="faint small" id="repeat-note" hidden style="margin:0"></p>
         <div class="fields">
           <label class="f">Where<select name="platform" id="d-plat" data-preview>
             <option value="meet" <?= $defPlatform === 'meet' ? 'selected' : '' ?>>Google Meet<?= $googleOk ? '' : ' (not connected)' ?></option>
@@ -101,7 +113,7 @@ $tabUrl = fn(string $t) => path('meetings', array_filter(['tab' => $t === 'past'
       <div class="mail"><dl class="mail-h"><dt>From</dt><dd><?= e(user()['name']) ?> &lt;<?= e(isset($ints['smtp']) ? $ints['smtp']['account_label'] : user()['email']) ?>&gt;</dd><dt>Subject</dt><dd><b>Invitation: <span id="pv-title">Untitled meeting</span></b></dd></dl>
         <div class="mail-b"><div>Hi, you’re invited to <b id="pv-title2">Untitled meeting</b>.</div>
           <div class="pv-note" id="pv-note" hidden></div>
-          <div><span class="faint">When</span> <span id="pv-when"></span><br><span class="faint">Where</span> <span id="pv-where"></span><span id="pv-project-row" hidden><br><span class="faint">Project</span> <span id="pv-project"></span></span></div>
+          <div><span class="faint">When</span> <span id="pv-when"></span><span id="pv-repeat-row" hidden><br><span class="faint">Repeats</span> <span id="pv-repeat"></span></span><br><span class="faint">Where</span> <span id="pv-where"></span><span id="pv-project-row" hidden><br><span class="faint">Project</span> <span id="pv-project"></span></span></div>
           <div><b>Agenda</b><div id="pv-agenda"></div></div>
           <span class="mail-cta locked">Add minutes (opens after the meeting)</span></div></div>
     </div>
@@ -132,8 +144,9 @@ $tabUrl = fn(string $t) => path('meetings', array_filter(['tab' => $t === 'past'
     <div style="min-width:0">
       <div class="row" style="gap:8px"><h3><a class="linkish" href="<?= e(path('meetings/' . $m['id'])) ?>"><?= e($m['title']) ?></a></h3><span class="pill <?= $cls ?>"><?= e($label) ?></span>
         <?php if ($req): ?><a class="pill s-review" href="<?= e(path('meetings/' . $m['id'])) ?>#permission"><?= plural($req, 'point request') ?> to review</a><?php endif; ?>
+        <?php if ($m['series_id']): ?><span class="pill s-neutral" title="Repeats <?= e(Meetings::repeatPhrase((string)$m['recurrence'])) ?>">↻ <?= e(Meetings::repeatShort((string)$m['recurrence'])) ?></span><?php endif; ?>
         <?php if ($m['project_name']): ?><a class="pill s-project" href="<?= e(path('meetings', array_filter(['project' => $m['project_id'], 'tab' => $tab === 'past' ? 'past' : null]))) ?>"><?= e($m['project_name']) ?></a><?php endif; ?></div>
-      <div class="mmeta"><span class="mono"><?= e(fmt_time($m['start_time'])) ?> · <?= (int)$m['duration_min'] ?> min</span><span><?= e(platform_label($m['platform'])) ?></span><span><?= plural((int)$m['invitee_count'], 'invitee') ?></span><span><?= plural((int)$m['point_count'], 'agenda point') ?></span>
+      <div class="mmeta"><span class="mono"><?= e(fmt_range($m)) ?> · <?= (int)$m['duration_min'] ?> min</span><span><?= e(platform_label($m['platform'])) ?></span><span><?= plural((int)$m['invitee_count'], 'invitee') ?></span><span><?= plural((int)$m['point_count'], 'agenda point') ?></span>
         <?php if ((int)$m['action_count']): ?><span><?= (int)$m['open_count'] ?> of <?= (int)$m['action_count'] ?> actions open</span><?php endif; ?>
         <span><?= $host ? 'You’re the host' : 'Host: ' . e($m['organizer_name']) ?></span></div>
     </div>

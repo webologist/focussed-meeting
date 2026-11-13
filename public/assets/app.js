@@ -199,17 +199,21 @@
   });
   function selectEl(el) { const r = document.createRange(); r.selectNodeContents(el); const s = getSelection(); s.removeAllRanges(); s.addRange(r); }
 
-  // ---- Note images preview ----
+  // ---- Note attachments preview (images get a thumbnail, documents a name chip) ----
   const files = $('#note-files');
   if (files) {
     const prev = $('#note-previews');
     const render = () => {
       prev.innerHTML = '';
       Array.from(files.files).forEach(f => {
-        if (!f.type.startsWith('image/')) return;
-        const url = URL.createObjectURL(f);
-        const d = document.createElement('div'); d.className = 'thumb';
-        d.innerHTML = '<img alt="">'; d.firstChild.src = url; prev.appendChild(d);
+        if (f.type.startsWith('image/')) {
+          const url = URL.createObjectURL(f);
+          const d = document.createElement('div'); d.className = 'thumb';
+          d.innerHTML = '<img alt="">'; d.firstChild.src = url; prev.appendChild(d);
+        } else {
+          const d = document.createElement('div'); d.className = 'fchip';
+          d.textContent = f.name; prev.appendChild(d);
+        }
       });
     };
     files.addEventListener('change', render);
@@ -268,6 +272,96 @@
       tip.style.left = x + 'px'; tip.style.top = y + 'px';
     });
   }
+
+  // ---- From / To times: moving From moves To by the same amount. To has to stay later than From ----
+  const toMin = v => { const m = /^(\d{2}):(\d{2})$/.exec(v || ''); return m ? (+m[1]) * 60 + (+m[2]) : null; };
+  const toTime = n => { n = Math.max(0, Math.min(23 * 60 + 59, n)); return pad(Math.floor(n / 60)) + ':' + pad(n % 60); };
+  const timePair = el => { const scope = el.closest('form') || document; return { s: $('[data-t-start]', scope), e: $('[data-t-end]', scope) }; };
+  const checkPair = (s, e) => {
+    const a = toMin(s.value), b = toMin(e.value);
+    e.setCustomValidity(a !== null && b !== null && b <= a ? 'The To time has to be later than the From time.' : '');
+  };
+  $$('[data-t-start]').forEach(s => {
+    const { e } = timePair(s); if (!e) return;
+    s.dataset.gap = String(Math.max(5, (toMin(e.value) ?? 0) - (toMin(s.value) ?? 0)));
+    checkPair(s, e);
+  });
+  document.addEventListener('input', ev => {
+    const el = ev.target;
+    if (el.matches && el.matches('[data-t-start]')) {
+      const { e } = timePair(el); if (!e) return;
+      const a = toMin(el.value);
+      if (a !== null) { e.value = toTime(a + (+el.dataset.gap || 30)); e.dispatchEvent(new Event('input', { bubbles: true })); }
+      checkPair(el, e);
+    } else if (el.matches && el.matches('[data-t-end]')) {
+      const { s } = timePair(el); if (!s) return;
+      const a = toMin(s.value), b = toMin(el.value);
+      if (a !== null && b !== null && b > a) s.dataset.gap = String(b - a);
+      checkPair(s, el);
+    }
+  });
+
+  // ---- Meeting alerts: a pop-up shortly before a meeting starts and 5 minutes before it ends ----
+  (function () {
+    if (!$('.app')) return;
+    const url = base.replace(/\/?$/, '/') + 'notifications/poll';
+    const seen = new Set();
+    let box = null;
+    const container = () => {
+      if (!box) {
+        box = document.createElement('div'); box.className = 'toasts';
+        box.setAttribute('role', 'region'); box.setAttribute('aria-label', 'Meeting alerts'); box.setAttribute('aria-live', 'polite');
+        document.body.appendChild(box);
+      }
+      return box;
+    };
+    const show = a => {
+      if (seen.has(a.key)) return; seen.add(a.key);
+      const t = document.createElement('div'); t.className = 'toast ' + a.kind;
+      t.innerHTML = '<div class="t-head"><span class="t-kind">' + (a.kind === 'end' ? 'Meeting ending soon' : 'Meeting starting soon') + '</span><button type="button" class="t-x" aria-label="Dismiss">×</button></div>'
+        + '<div class="t-text">' + esc(a.text) + '</div><div class="t-when">' + esc(a.when) + '</div>'
+        + '<div class="t-actions"><a class="btn sm primary" href="' + esc(a.url) + '">Open meeting</a>' + (a.join ? '<a class="btn sm" href="' + esc(a.join) + '" target="_blank" rel="noopener">Join</a>' : '') + '</div>';
+      t.querySelector('.t-x').addEventListener('click', () => t.remove());
+      container().appendChild(t);
+      while (box.children.length > 4) box.firstChild.remove();
+    };
+    const setBell = n => {
+      $$('.bell').forEach(b => {
+        let badge = $('.n', b);
+        if (n > 0) { if (!badge) { badge = document.createElement('span'); badge.className = 'n'; b.appendChild(badge); } badge.textContent = n; }
+        else if (badge) badge.remove();
+      });
+    };
+    const poll = async () => {
+      try {
+        const r = await fetch(url, { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+        if (!r.ok || !(r.headers.get('content-type') || '').includes('json')) return;
+        const d = await r.json();
+        (d.alerts || []).forEach(show);
+        if (typeof d.unread === 'number') setBell(d.unread);
+      } catch (e) { /* offline or signed out: try again next time */ }
+    };
+    setTimeout(poll, 1500);
+    setInterval(poll, 30000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) poll(); });
+  })();
+
+  // ---- Admin: create a user. Generate a password, show/hide it ----
+  document.addEventListener('click', e => {
+    const gen = e.target.closest('[data-gen-password]');
+    if (gen) {
+      const input = $(gen.dataset.genPassword); if (!input) return;
+      const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz', digits = '23456789', all = letters + digits;
+      const rnd = n => { const a = new Uint32Array(1); crypto.getRandomValues(a); return a[0] % n; };
+      let pw = letters[rnd(letters.length)] + digits[rnd(digits.length)];
+      while (pw.length < 12) pw += all[rnd(all.length)];
+      input.value = pw.split('').sort(() => rnd(3) - 1).join('');
+      input.type = 'text';
+      return;
+    }
+    const tog = e.target.closest('[data-toggle-password]');
+    if (tog) { const input = $(tog.dataset.togglePassword); if (input) { input.type = input.type === 'password' ? 'text' : 'password'; tog.textContent = input.type === 'password' ? 'Show' : 'Hide'; } }
+  });
 
   // ---- Meeting planner ----
   const planner = $('#planner');
@@ -343,9 +437,10 @@
     });
     $('#add-point').addEventListener('click', () => { const n = blank(); points.push(n); renderAgenda(n.k); });
 
+    function durationMins() { const a = toMin($('#d-time').value), b = toMin($('#d-end').value); return a !== null && b !== null && b > a ? b - a : 30; }
     function updateAlloc() {
       const total = points.reduce((s, p) => s + (+p.mins || 0), 0);
-      const dur = +$('#d-dur').value || 30;
+      const dur = durationMins();
       $('#alloc-text').textContent = total + ' / ' + dur + ' min';
       $('#alloc-bar').style.width = Math.min(100, total / dur * 100) + '%';
       $('#alloc').classList.toggle('over', total > dur);
@@ -385,7 +480,47 @@
       preview();
     });
     $$('[data-preview]', form).forEach(el => el.addEventListener('input', () => { preview(); updateAlloc(); }));
-    $('#d-dur').addEventListener('change', updateAlloc);
+
+    // Repeat: mirrors the server rules so the host sees how many meetings this will create
+    const rep = $('#d-repeat'), until = $('#d-until');
+    const PHRASE = { daily: 'every day', weekdays: 'every weekday (Mon–Fri)', weekly: 'every week', biweekly: 'every 2 weeks', monthly: 'every month' };
+    const fmtDay = x => new Date(x + 'T12:00:00').toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+    function repeatInfo() {
+      if (!rep || rep.value === 'none') return null;
+      const start = $('#d-date').value, end = until.value;
+      if (!start) return { problem: 'Pick the first date.' };
+      const s = new Date(start + 'T12:00:00');
+      if (rep.value === 'weekdays' && (s.getDay() === 0 || s.getDay() === 6)) return { problem: 'A Monday–Friday repeat has to start on a weekday. Pick a weekday as the first date.' };
+      if (rep.value === 'monthly' && s.getDate() > 28) return { problem: 'A monthly repeat needs a first date between the 1st and the 28th, so it exists in every month.' };
+      if (!end || end <= start) return { problem: 'Pick the date the repeat ends. It has to be after the first meeting.' };
+      const u = new Date(end + 'T12:00:00'); const dates = []; let d = new Date(s), i = 0;
+      while (d <= u && dates.length <= 60) {
+        dates.push(iso(d)); i++;
+        if (rep.value === 'daily') d.setDate(d.getDate() + 1);
+        else if (rep.value === 'weekdays') { do { d.setDate(d.getDate() + 1); } while (d.getDay() === 0 || d.getDay() === 6); }
+        else if (rep.value === 'weekly') d.setDate(d.getDate() + 7);
+        else if (rep.value === 'biweekly') d.setDate(d.getDate() + 14);
+        else d = new Date(s.getFullYear(), s.getMonth() + i, s.getDate(), 12);
+      }
+      if (dates.length > 60) return { problem: 'That repeats more than 60 times. Choose an earlier end date.' };
+      if (dates.length < 2) return { problem: 'With that end date the meeting would not repeat. Pick a later end date.' };
+      return { dates };
+    }
+    function syncRepeat() {
+      if (!rep) return;
+      const on = rep.value !== 'none';
+      $('#repeat-until-wrap').hidden = !on; until.required = on;
+      if (on && !until.value && $('#d-date').value) { const x = new Date($('#d-date').value + 'T12:00:00'); x.setMonth(x.getMonth() + 3); until.value = iso(x); }
+      const info = repeatInfo(), note = $('#repeat-note');
+      note.hidden = !on;
+      note.style.color = info && info.problem ? 'var(--high)' : '';
+      note.textContent = !on ? '' : info.problem ? info.problem : plural(info.dates.length, 'meeting') + ', ' + PHRASE[rep.value] + ': ' + fmtDay(info.dates[0]) + ' to ' + fmtDay(info.dates[info.dates.length - 1]) + '. Everyone gets one invite for the whole series.';
+      const row = $('#pv-repeat-row');
+      row.hidden = !on || !info || !!info.problem;
+      if (!row.hidden) $('#pv-repeat').textContent = PHRASE[rep.value] + ' until ' + fmtDay(until.value) + ' (' + plural(info.dates.length, 'meeting') + ')';
+    }
+    const plural = (n, w) => n + ' ' + w + (n === 1 ? '' : 's');
+    if (rep) { rep.addEventListener('change', syncRepeat); until.addEventListener('input', syncRepeat); $('#d-date').addEventListener('input', syncRepeat); }
 
     function preview() {
       const title = $('#d-title').value.trim() || 'Untitled meeting';
@@ -395,10 +530,12 @@
       const proj = $('#d-project');
       const projName = !proj || !proj.value ? '' : (proj.value === '-1' ? $('#d-new-project').value.trim() : proj.options[proj.selectedIndex].text);
       $('#pv-project-row').hidden = !projName; $('#pv-project').textContent = projName;
-      const d = $('#d-date').value, t = $('#d-time').value;
+      const d = $('#d-date').value, t = $('#d-time').value, t2 = $('#d-end').value;
       let when = '';
-      if (d) { const x = new Date(d + 'T' + (t || '00:00')); when = x.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) + ', ' + x.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }); }
-      $('#pv-when').textContent = when + ' (' + $('#d-dur').value + ' min)';
+      const clock = (day, hm) => new Date(day + 'T' + (hm || '00:00')).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+      if (d) { const x = new Date(d + 'T' + (t || '00:00')); when = x.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) + ', ' + clock(d, t) + (t2 ? ' – ' + clock(d, t2) : ''); }
+      $('#pv-when').textContent = when + ' (' + durationMins() + ' min)';
+      syncRepeat();
       $('#pv-where').textContent = plat.value === 'inperson' ? ($('#d-loc').value || 'Location to be confirmed') : (plat.value === 'meet' ? 'Google Meet link' : 'Microsoft Teams link') + ' (created when you send)';
       const inv = invitees();
       const pts = points.filter(p => p.title.trim());
@@ -413,6 +550,8 @@
       const pts = points.filter(p => p.title.trim()).map(p => ({ title: p.title.trim(), details: p.details.trim(), presenter: p.presenter, mins: +p.mins || 0, subs: p.subs.map(s => s.trim()).filter(Boolean) }));
       if (!pts.length) { e.preventDefault(); const first = builder.querySelector('[data-f="title"]'); first.setCustomValidity('Add at least one agenda point'); first.reportValidity(); setTimeout(() => first.setCustomValidity(''), 2000); return; }
       if (!$$('#member-list input:checked').length && !people.length) { e.preventDefault(); if ($('#np-name')) $('#np-name').focus(); alert('Add at least one invitee.'); return; }
+      const rp = repeatInfo();
+      if (rp && rp.problem) { e.preventDefault(); syncRepeat(); (rep.value === 'weekdays' || rep.value === 'monthly' ? $('#d-date') : until).focus(); $('#repeat-note').scrollIntoView({ block: 'center' }); return; }
       const proj = $('#d-project');
       if (proj && proj.value === '-1' && !$('#d-new-project').value.trim()) { e.preventDefault(); $('#d-new-project').focus(); $('#d-new-project').reportValidity(); return; }
       agendaField.value = JSON.stringify(pts);

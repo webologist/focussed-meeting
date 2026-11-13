@@ -7,7 +7,8 @@ $others = array_filter($invitees, fn($i) => (int)$i['id'] !== (int)$m['organizer
   <table><tbody>
     <?php if ($project): ?><tr><th>Project</th><td><?= e($project['name']) ?></td></tr><?php endif; ?>
     <tr><th>Date</th><td><?= e(gmdate('l', strtotime($m['meeting_date'] . ' 00:00:00 UTC'))) ?>, <?= e(fmt_date($m['meeting_date'])) ?></td></tr>
-    <tr><th>Time</th><td><?= e(fmt_time($m['start_time'])) ?> (<?= (int)$m['duration_min'] ?> min) · <?= e($m['timezone']) ?></td></tr>
+    <tr><th>Time</th><td><?= e(fmt_range($m)) ?> (<?= (int)$m['duration_min'] ?> min) · <?= e($m['timezone']) ?></td></tr>
+    <?php $series = \App\Services\Meetings::series($m); if ($series): ?><tr><th>Repeats</th><td><?= e(substr($series['sentence'], 8)) ?>. This is meeting <?= (int)$series['position'] ?> of <?= (int)$series['count'] ?>.</td></tr><?php endif; ?>
     <tr><th>Where</th><td style="overflow-wrap:anywhere"><?= e($m['platform'] === 'inperson' ? ($m['location'] ?: 'To be confirmed') : platform_label($m['platform'])) ?><?php if ($m['platform'] !== 'inperson' && $m['join_url']): ?><br><?= e($m['join_url']) ?><?php endif; ?></td></tr>
     <tr><th>Host</th><td><?= e($m['organizer_name']) ?> · <?= e($m['organizer_email']) ?></td></tr>
     <tr><th>Invitees</th><td><?= e(implode(', ', array_column($others, 'name'))) ?></td></tr>

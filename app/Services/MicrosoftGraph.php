@@ -103,6 +103,7 @@ final class MicrosoftGraph
             'isOnlineMeeting' => true,
             'onlineMeetingProvider' => 'teamsForBusiness',
         ];
+        if (!empty($m['_graph_recurrence'])) $body['recurrence'] = $m['_graph_recurrence']; // recurring series: one event that repeats
         $r = Http::request('POST', 'https://graph.microsoft.com/v1.0/me/events', ['bearer' => $token, 'json' => $body]);
         if ($r['status'] >= 300) {
             $msg = is_array($r['body']) ? ($r['body']['error']['message'] ?? 'Unknown error') : 'Unknown error';

@@ -24,6 +24,7 @@ $router->post('/tasks', 'ActionController@storeTask', ['auth']);
 $router->post('/reminders', 'ReminderController@store', ['auth']);
 $router->post('/reminders/{id}/delete', 'ReminderController@destroy', ['auth']);
 $router->get('/notifications', 'NotificationController@index', ['auth']);
+$router->get('/notifications/poll', 'NotificationController@poll', ['auth']);
 $router->post('/notifications/read', 'NotificationController@markRead', ['auth']);
 
 // Action tracker and items
@@ -59,6 +60,7 @@ $router->post('/meetings/{id}/requests', 'MeetingController@requestPoint', ['aut
 $router->post('/meetings/{id}/requests/{item}/review', 'MeetingController@reviewRequest', ['auth']);
 $router->post('/meetings/{id}/actions', 'MeetingController@addAction', ['auth']);
 $router->post('/meetings/{id}/rsvp', 'MeetingController@rsvp', ['auth']);
+$router->post('/meetings/{id}/attendance', 'MeetingController@attendance', ['auth']);
 $router->get('/meetings/{id}/mom', 'MeetingController@mom', ['auth']);
 $router->post('/meetings/{id}/mom/send', 'MeetingController@sendMom', ['auth']);
 $router->get('/meetings/{id}/print/invite', 'MeetingController@printInvite', ['auth']);
@@ -84,6 +86,8 @@ $router->post('/account/preferences', 'AccountController@savePreferences', ['aut
 $router->post('/account/password', 'AccountController@changePassword', ['auth']);
 $router->get('/team', 'TeamController@index', ['auth']);
 $router->post('/team/invite', 'TeamController@invite', ['auth', 'admin']);
+$router->post('/team/create', 'TeamController@create', ['auth', 'admin']);
+$router->post('/team/{id}/password', 'TeamController@setPassword', ['auth', 'admin']);
 $router->post('/team/{id}/role', 'TeamController@role', ['auth', 'admin']);
 $router->post('/team/{id}/status', 'TeamController@status', ['auth', 'admin']);
 $router->post('/team/{id}/delete', 'TeamController@destroy', ['auth', 'admin']);

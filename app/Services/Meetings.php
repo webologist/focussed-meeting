@@ -13,6 +13,107 @@ final class Meetings
      */
     public const ON_AGENDA = "(ai.request_status IS NULL OR ai.request_status = 'approved')";
 
+    /** How a meeting can repeat (key => label shown in the planner). */
+    public const REPEATS = [
+        'daily'    => 'Every day',
+        'weekdays' => 'Every weekday (Mon–Fri)',
+        'weekly'   => 'Every week',
+        'biweekly' => 'Every 2 weeks',
+        'monthly'  => 'Every month (same date)',
+    ];
+    /** A series is created in one go, so keep it to a sensible size. */
+    public const MAX_OCCURRENCES = 60;
+
+    /** "every week" – used in sentences like "Repeats every week until 31 Dec 2026". */
+    public static function repeatPhrase(string $rule): string
+    {
+        return ['daily' => 'every day', 'weekdays' => 'every weekday (Mon–Fri)', 'weekly' => 'every week', 'biweekly' => 'every 2 weeks', 'monthly' => 'every month'][$rule] ?? $rule;
+    }
+
+    /** Short label for list pills: "Weekly". */
+    public static function repeatShort(string $rule): string
+    {
+        return ['daily' => 'Daily', 'weekdays' => 'Weekdays', 'weekly' => 'Weekly', 'biweekly' => 'Every 2 weeks', 'monthly' => 'Monthly'][$rule] ?? 'Repeats';
+    }
+
+    /** Why this start date can't use the repeat rule (or null when it is fine). */
+    public static function repeatProblem(string $rule, string $startDate): ?string
+    {
+        if (!isset(self::REPEATS[$rule])) return 'Pick how the meeting should repeat.';
+        $d = new \DateTimeImmutable($startDate);
+        if ($rule === 'weekdays' && (int)$d->format('N') > 5) return 'A Monday–Friday repeat has to start on a weekday. Pick a weekday as the first date.';
+        if ($rule === 'monthly' && (int)$d->format('j') > 28) return 'A monthly repeat needs a first date between the 1st and the 28th, so it exists in every month.';
+        return null;
+    }
+
+    /**
+     * Every date of a series from $startDate to $until (inclusive), starting with $startDate itself.
+     * Stops one past MAX_OCCURRENCES so the caller can tell the series is too long.
+     * @return string[] Y-m-d dates
+     */
+    public static function occurrences(string $startDate, string $rule, string $until): array
+    {
+        if (self::repeatProblem($rule, $startDate) !== null) return [];
+        $start = new \DateTimeImmutable($startDate);
+        $end = new \DateTimeImmutable($until);
+        $dates = [];
+        $d = $start;
+        for ($i = 0; $d <= $end && count($dates) <= self::MAX_OCCURRENCES; $i++) {
+            $dates[] = $d->format('Y-m-d');
+            switch ($rule) {
+                case 'daily':    $d = $d->modify('+1 day'); break;
+                case 'weekdays': $d = $d->modify('+1 day'); while ((int)$d->format('N') > 5) $d = $d->modify('+1 day'); break;
+                case 'weekly':   $d = $d->modify('+7 days'); break;
+                case 'biweekly': $d = $d->modify('+14 days'); break;
+                case 'monthly':  $ym = $start->modify('first day of this month')->modify('+' . ($i + 1) . ' months'); $d = $ym->setDate((int)$ym->format('Y'), (int)$ym->format('n'), (int)$start->format('j')); break;
+            }
+        }
+        return $dates;
+    }
+
+    /** iCalendar RRULE value (Google Calendar and .ics files). $count includes the first meeting. */
+    public static function rrule(string $rule, int $count): string
+    {
+        return match ($rule) {
+            'daily'    => "FREQ=DAILY;COUNT=$count",
+            'weekdays' => "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR;COUNT=$count",
+            'weekly'   => "FREQ=WEEKLY;COUNT=$count",
+            'biweekly' => "FREQ=WEEKLY;INTERVAL=2;COUNT=$count",
+            'monthly'  => "FREQ=MONTHLY;COUNT=$count",
+            default    => '',
+        };
+    }
+
+    /** Microsoft Graph "recurrence" object for the same rule. */
+    public static function graphRecurrence(string $rule, int $count, string $startDate): array
+    {
+        $dow = strtolower((new \DateTimeImmutable($startDate))->format('l'));
+        $pattern = match ($rule) {
+            'daily'    => ['type' => 'daily', 'interval' => 1],
+            'weekdays' => ['type' => 'weekly', 'interval' => 1, 'daysOfWeek' => ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'], 'firstDayOfWeek' => 'monday'],
+            'weekly'   => ['type' => 'weekly', 'interval' => 1, 'daysOfWeek' => [$dow], 'firstDayOfWeek' => 'monday'],
+            'biweekly' => ['type' => 'weekly', 'interval' => 2, 'daysOfWeek' => [$dow], 'firstDayOfWeek' => 'monday'],
+            default    => ['type' => 'absoluteMonthly', 'interval' => 1, 'dayOfMonth' => (int)(new \DateTimeImmutable($startDate))->format('j')],
+        };
+        return ['pattern' => $pattern, 'range' => ['type' => 'numbered', 'startDate' => $startDate, 'numberOfOccurrences' => $count]];
+    }
+
+    /** The series a meeting belongs to: how it repeats, how many meetings, which one this is. Null for a one-off meeting. */
+    public static function series(array $m): ?array
+    {
+        if (empty($m['series_id'])) return null;
+        $rows = DB::all('SELECT id, meeting_date, start_time, status FROM meetings WHERE series_id = ? AND org_id = ? ORDER BY meeting_date, start_time, id', [$m['series_id'], $m['org_id']]);
+        if (!$rows) return null;
+        $pos = 1;
+        foreach ($rows as $i => $r) if ((int)$r['id'] === (int)$m['id']) $pos = $i + 1;
+        $rule = (string)($m['recurrence'] ?? '');
+        $last = end($rows)['meeting_date'];
+        return [
+            'rule' => $rule, 'rows' => $rows, 'count' => count($rows), 'position' => $pos, 'first_date' => $rows[0]['meeting_date'], 'last_date' => $last,
+            'sentence' => 'Repeats ' . self::repeatPhrase($rule) . ' until ' . fmt_date($last) . ' (' . plural(count($rows), 'meeting') . ')',
+        ];
+    }
+
     /** Agenda points (including approved requests), in order, with presenter name and decoded sub-points. */
     public static function agenda(int $meetingId): array
     {
@@ -84,7 +185,9 @@ final class Meetings
     /** Plain-text invitation the host can share personally (copy, WhatsApp, own mail app). */
     public static function inviteText(array $m, array $agenda, string $organizerName, ?string $toName = null): string
     {
-        $when = gmdate('l', strtotime($m['meeting_date'] . ' 00:00:00 UTC')) . ', ' . fmt_date($m['meeting_date']) . ', ' . fmt_time($m['start_time']) . ' (' . (int)$m['duration_min'] . ' min, ' . $m['timezone'] . ')';
+        $when = gmdate('l', strtotime($m['meeting_date'] . ' 00:00:00 UTC')) . ', ' . fmt_date($m['meeting_date']) . ', ' . fmt_range($m) . ' (' . (int)$m['duration_min'] . ' min, ' . $m['timezone'] . ')';
+        $series = self::series($m);
+        if ($series) $when .= "\n" . $series['sentence'];
         $note = trim((string)($m['personal_note'] ?? ''));
         return ($toName ? 'Hi ' . explode(' ', trim($toName))[0] . ",\n\n" : "Hi,\n\n")
             . 'You’re invited to "' . $m['title'] . "\".\n\n"
@@ -102,6 +205,15 @@ final class Meetings
     public static function sendInvites(array $m, bool $createEvent = true): array
     {
         $warnings = [];
+        // A recurring series gets ONE invitation (the first meeting, with the repeat rule). Never one per date.
+        if (!empty($m['series_id']) && (int)$m['series_id'] !== (int)$m['id']) $m = DB::one('SELECT * FROM meetings WHERE id = ?', [$m['series_id']]) ?: $m;
+        $series = self::series($m);
+        if ($series && $series['count'] > 1) {
+            $m['_rrule'] = self::rrule((string)$m['recurrence'], $series['count']);
+            $m['_graph_recurrence'] = self::graphRecurrence((string)$m['recurrence'], $series['count'], $m['meeting_date']);
+        } else {
+            $series = null;
+        }
         $orgId = (int)$m['org_id'];
         $agenda = self::agenda((int)$m['id']);
         $invitees = self::invitees((int)$m['id']);
@@ -134,7 +246,8 @@ final class Meetings
             $calendarSent = $automatic;
         }
 
-        $when = fmt_date($m['meeting_date']) . ', ' . fmt_time($m['start_time']) . ' (' . $m['duration_min'] . ' min, ' . $m['timezone'] . ')';
+        $when = fmt_date($m['meeting_date']) . ', ' . fmt_range($m) . ' (' . $m['duration_min'] . ' min, ' . $m['timezone'] . ')';
+        $repeats = $series ? $series['sentence'] : '';
         $where = self::where($m);
         $ics = Ics::invite($m, $organizer, array_map(fn($i) => ['name' => $i['name'], 'email' => $i['email']], $invitees), self::agendaText($agenda) . "\n\n" . url('meetings/' . $m['id']));
         $failed = 0;
@@ -143,7 +256,7 @@ final class Meetings
             if ($m['sent_email']) {
                 $body = '<p>Hi ' . e(explode(' ', $i['name'])[0]) . ', you’re invited to <b>' . e($m['title']) . '</b>.</p>'
                     . ($note !== '' ? '<p style="border-left:3px solid #1F6F78;padding:2px 0 2px 12px;white-space:pre-wrap">' . e($note) . '</p>' : '')
-                    . '<p><span style="color:#7B8794">When</span> ' . e($when) . '<br><span style="color:#7B8794">Where</span> ' . (preg_match('~^https?://~', $where) ? '<a href="' . e($where) . '">' . e($where) . '</a>' : e($where))
+                    . '<p><span style="color:#7B8794">When</span> ' . e($when) . ($repeats !== '' ? '<br><span style="color:#7B8794">Repeats</span> ' . e(mb_substr($repeats, 8)) : '') . '<br><span style="color:#7B8794">Where</span> ' . (preg_match('~^https?://~', $where) ? '<a href="' . e($where) . '">' . e($where) . '</a>' : e($where))
                     . '<br><span style="color:#7B8794">Host</span> ' . e($organizer['name']) . ($project ? '<br><span style="color:#7B8794">Project</span> ' . e($project['name']) : '') . '</p>'
                     . '<p style="margin-bottom:0"><b>Agenda</b></p>' . self::agendaHtml($agenda)
                     . ($i['status'] === 'invited' ? '<p style="color:#4A5663;font-size:14px">You’ll also get a separate email to set up your account, so you can add minutes after the meeting.</p>' : '')
@@ -154,9 +267,9 @@ final class Meetings
                 if (DB::value('SELECT status FROM outbox WHERE id = ?', [$oid]) !== 'sent') $failed++;
             }
             if ($m['sent_whatsapp'] && $i['phone']) {
-                Notifier::whatsapp($orgId, (string)$i['phone'], $i['name'], "*{$m['title']}*\n" . ($note !== '' ? "$note\n" : '') . "📅 $when\n📍 $where\n\nAgenda:\n" . self::agendaText($agenda) . "\n\n" . url('meetings/' . $m['id']));
+                Notifier::whatsapp($orgId, (string)$i['phone'], $i['name'], "*{$m['title']}*\n" . ($note !== '' ? "$note\n" : '') . "📅 $when" . ($repeats !== '' ? " · $repeats" : '') . "\n📍 $where\n\nAgenda:\n" . self::agendaText($agenda) . "\n\n" . url('meetings/' . $m['id']));
             }
-            Notifier::inApp((int)$i['id'], $organizer['name'] . ' invited you to "' . $m['title'] . '" on ' . fmt_date($m['meeting_date'], false), 'meetings/' . $m['id']);
+            Notifier::inApp((int)$i['id'], $organizer['name'] . ' invited you to "' . $m['title'] . '" on ' . fmt_date($m['meeting_date'], false) . ($series ? ', repeating ' . self::repeatPhrase((string)$m['recurrence']) : ''), 'meetings/' . $m['id']);
         }
         if ($failed) $warnings[] = plural($failed, 'invite email') . ' couldn’t be sent yet and will be retried automatically. Check Integrations → Email.';
         DB::update('meetings', ['invite_sent_at' => now_utc()], ['id' => $m['id']]);

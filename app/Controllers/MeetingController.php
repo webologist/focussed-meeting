@@ -61,7 +61,10 @@ final class MeetingController
         $title = trim((string)input('title'));
         $date = (string)input('date');
         $time = (string)input('time');
-        $duration = max(5, min(600, (int)input('duration', 30)));
+        $endTime = (string)input('end_time');
+        if ($endTime === '' && isset($_POST['duration']) && valid_time($time)) $endTime = min_to_time(time_to_min($time) + max(5, min(600, (int)input('duration', 30)))); // a page cached from before From/To still posts a duration
+        $repeat = (string)input('repeat', 'none');
+        $repeatUntil = (string)input('repeat_until', '');
         $platform = in_array(input('platform'), ['meet', 'teams', 'inperson'], true) ? input('platform') : 'meet';
         $location = (string)input('location');
         $note = mb_substr(trim((string)input('personal_note', '')), 0, 2000);
@@ -74,7 +77,23 @@ final class MeetingController
 
         $errors = [];
         if ($title === '') $errors[] = 'Give the meeting a title.';
-        if (!valid_date($date) || !valid_time($time)) $errors[] = 'Pick a date and start time.';
+        $dates = [$date];
+        $duration = 30;
+        if (!valid_date($date) || !valid_time($time)) $errors[] = 'Pick a date and a From time.';
+        elseif (!valid_time($endTime)) $errors[] = 'Pick a To time.';
+        elseif (time_to_min($endTime) <= time_to_min($time)) $errors[] = 'The To time has to be later than the From time.';
+        else $duration = time_to_min($endTime) - time_to_min($time);
+        if ($repeat !== 'none' && $repeat !== '' && valid_date($date)) {
+            if ($problem = Meetings::repeatProblem($repeat, $date)) $errors[] = $problem;
+            elseif (!valid_date($repeatUntil) || $repeatUntil <= $date) $errors[] = 'Pick the date the repeat ends. It has to be after the first meeting.';
+            else {
+                $dates = Meetings::occurrences($date, $repeat, $repeatUntil);
+                if (count($dates) > Meetings::MAX_OCCURRENCES) $errors[] = 'That repeats more than ' . Meetings::MAX_OCCURRENCES . ' times. Choose an earlier end date.';
+                elseif (count($dates) < 2) $errors[] = 'With that end date the meeting would not repeat. Pick a later end date or choose “Does not repeat”.';
+            }
+        } else {
+            $repeat = 'none';
+        }
         $agenda = array_values(array_filter(is_array($agenda) ? $agenda : [], fn($p) => is_array($p) && trim((string)($p['title'] ?? '')) !== ''));
         if (!$agenda) $errors[] = 'Add at least one agenda point.';
         if (!$viaEmail && !$viaWa && !$viaPersonal) $errors[] = 'Choose how to send the invite: email, WhatsApp or personal invite.';
@@ -140,34 +159,47 @@ final class MeetingController
         $inviteeIds = array_values(array_unique(array_merge([uid()], $inviteeIds)));
 
         $tz = user_tz();
-        $meetingId = DB::transaction(function () use ($title, $date, $time, $duration, $platform, $location, $tz, $viaEmail, $viaWa, $viaPersonal, $note, $projectId, $agenda, $inviteeIds) {
-            $id = DB::insert('meetings', [
-                'org_id' => org_id(), 'project_id' => $projectId, 'organizer_id' => uid(), 'title' => mb_substr($title, 0, 200), 'meeting_date' => $date, 'start_time' => $time,
-                'duration_min' => (int)$duration, 'timezone' => $tz, 'starts_at_utc' => local_to_utc($date, $time, $tz), 'platform' => $platform,
-                'location' => $platform === 'inperson' ? mb_substr($location, 0, 250) : null, 'status' => 'scheduled',
-                'sent_email' => $viaEmail ? 1 : 0, 'sent_whatsapp' => $viaWa ? 1 : 0, 'sent_personal' => $viaPersonal ? 1 : 0,
-                'personal_note' => $note !== '' ? $note : null, 'created_at' => now_utc(),
-            ]);
-            foreach ($inviteeIds as $u) DB::insert('meeting_invitees', ['meeting_id' => $id, 'user_id' => $u, 'rsvp' => $u === uid() ? 'yes' : 'pending']);
-            foreach ($agenda as $i => $p) {
-                $presenter = (int)($p['presenter'] ?? 0);
-                DB::insert('agenda_items', [
-                    'meeting_id' => $id, 'position' => $i, 'title' => mb_substr(trim((string)$p['title']), 0, 250),
-                    'details' => trim((string)($p['details'] ?? '')) ?: null,
-                    'presenter_id' => in_array($presenter, $inviteeIds, true) ? $presenter : null,
-                    'minutes_allotted' => max(0, min(600, (int)($p['mins'] ?? 0))),
-                    'subpoints' => json_encode(array_values(array_filter(array_map(fn($s) => mb_substr(trim((string)$s), 0, 250), (array)($p['subs'] ?? [])), 'strlen'))),
+        // One meeting per date. A repeating meeting is a series: every date has its own minutes and tasks, and shares the agenda and invitees.
+        $meetingId = DB::transaction(function () use ($title, $dates, $time, $endTime, $duration, $platform, $location, $tz, $viaEmail, $viaWa, $viaPersonal, $note, $projectId, $agenda, $inviteeIds, $repeat) {
+            $firstId = 0;
+            foreach ($dates as $d) {
+                $id = DB::insert('meetings', [
+                    'org_id' => org_id(), 'project_id' => $projectId, 'organizer_id' => uid(), 'title' => mb_substr($title, 0, 200), 'meeting_date' => $d, 'start_time' => $time,
+                    'end_time' => $endTime, 'duration_min' => (int)$duration, 'timezone' => $tz, 'starts_at_utc' => local_to_utc($d, $time, $tz), 'platform' => $platform,
+                    'location' => $platform === 'inperson' ? mb_substr($location, 0, 250) : null, 'status' => 'scheduled',
+                    'sent_email' => $viaEmail ? 1 : 0, 'sent_whatsapp' => $viaWa ? 1 : 0, 'sent_personal' => $viaPersonal ? 1 : 0,
+                    'personal_note' => $note !== '' ? $note : null, 'series_id' => $firstId ?: null, 'recurrence' => $repeat !== 'none' ? $repeat : null, 'created_at' => now_utc(),
                 ]);
+                if (!$firstId) {
+                    $firstId = $id;
+                    if ($repeat !== 'none') DB::update('meetings', ['series_id' => $id], ['id' => $id]);
+                }
+                foreach ($inviteeIds as $u) DB::insert('meeting_invitees', ['meeting_id' => $id, 'user_id' => $u, 'rsvp' => $u === uid() ? 'yes' : 'pending']);
+                foreach ($agenda as $i => $p) {
+                    $presenter = (int)($p['presenter'] ?? 0);
+                    DB::insert('agenda_items', [
+                        'meeting_id' => $id, 'position' => $i, 'title' => mb_substr(trim((string)$p['title']), 0, 250),
+                        'details' => trim((string)($p['details'] ?? '')) ?: null,
+                        'presenter_id' => in_array($presenter, $inviteeIds, true) ? $presenter : null,
+                        'minutes_allotted' => max(0, min(600, (int)($p['mins'] ?? 0))),
+                        'subpoints' => json_encode(array_values(array_filter(array_map(fn($s) => mb_substr(trim((string)$s), 0, 250), (array)($p['subs'] ?? [])), 'strlen'))),
+                    ]);
+                }
             }
-            return $id;
+            return $firstId;
         });
         unset($_SESSION['_planner']);
-        Audit::log('meeting.created', 'meeting', $meetingId);
+        Audit::log('meeting.created', 'meeting', $meetingId, $repeat !== 'none' ? ['repeat' => $repeat, 'meetings' => count($dates)] : []);
         $m = DB::one('SELECT * FROM meetings WHERE id = ?', [$meetingId]);
         foreach (Meetings::sendInvites($m) as $w) flash('error', $w);
+        if ($repeat !== 'none') { // every date in the series uses the same meeting link
+            $m = DB::one('SELECT join_url FROM meetings WHERE id = ?', [$meetingId]);
+            if (!empty($m['join_url'])) DB::run('UPDATE meetings SET join_url = ? WHERE series_id = ? AND id <> ?', [$m['join_url'], $meetingId, $meetingId]);
+        }
         $n = plural(count($inviteeIds) - 1, 'person', 'people');
-        if (!$viaEmail && !$viaWa) flash('success', 'Meeting scheduled. Hand out the personal invitations to ' . $n . ': print the letters or share the invite from this page.');
-        else flash('success', 'Meeting scheduled and invites sent to ' . $n . '.' . ($viaPersonal ? ' Personal invitation letters are ready to print on this page.' : ''));
+        $what = $repeat !== 'none' ? count($dates) . ' meetings scheduled (' . Meetings::repeatPhrase($repeat) . ', until ' . fmt_date(end($dates)) . ')' : 'Meeting scheduled';
+        if (!$viaEmail && !$viaWa) flash('success', $what . '. Hand out the personal invitations to ' . $n . ': print the letters or share the invite from this page.');
+        else flash('success', $what . ' and ' . ($repeat !== 'none' ? 'one invite for the whole series' : 'invites') . ' sent to ' . $n . '.' . ($viaPersonal ? ' Personal invitation letters are ready to print on this page.' : ''));
         redirect('meetings/' . $meetingId);
     }
 
@@ -186,7 +218,8 @@ final class MeetingController
         $myRsvp = null;
         foreach ($invitees as $i) if ((int)$i['id'] === uid()) $myRsvp = $i['rsvp'];
         $project = Meetings::project($m);
-        echo view('meetings/show', compact('m', 'agenda', 'requests', 'invitees', 'byPoint', 'canManage', 'isHost', 'isInvitee', 'myRsvp', 'project') + ['title' => $m['title']]);
+        $series = Meetings::series($m);
+        echo view('meetings/show', compact('m', 'agenda', 'requests', 'invitees', 'byPoint', 'canManage', 'isHost', 'isInvitee', 'myRsvp', 'project', 'series') + ['title' => $m['title']]);
     }
 
     public function complete(int $id): void
@@ -205,28 +238,50 @@ final class MeetingController
     {
         $m = Access::meeting($id);
         if (!Access::canManageMeeting($m) || $m['status'] !== 'scheduled') abort(403);
-        DB::update('meetings', ['status' => 'cancelled', 'updated_at' => now_utc()], ['id' => $id]);
-        if ($m['external_event_id']) {
-            try {
-                $m['platform'] === 'meet' ? GoogleCalendar::cancelEvent(org_id(), $m['external_event_id']) : MicrosoftGraph::cancelEvent(org_id(), $m['external_event_id']);
-            } catch (\Throwable $e) {
-                flash('error', 'The calendar event couldn’t be cancelled: ' . $e->getMessage());
+        $inSeries = !empty($m['series_id']);
+        $following = $inSeries && input('scope') === 'following';
+        $ids = [$id];
+        if ($following) { // this meeting and every later one in the series that is still scheduled
+            $ids = array_map('intval', array_column(DB::all("SELECT id FROM meetings WHERE series_id = ? AND org_id = ? AND status = 'scheduled' AND (meeting_date > ? OR (meeting_date = ? AND start_time >= ?)) ORDER BY meeting_date, start_time",
+                [$m['series_id'], org_id(), $m['meeting_date'], $m['meeting_date'], $m['start_time']]), 'id'));
+            if (!in_array($id, $ids, true)) $ids[] = $id;
+        }
+        DB::run('UPDATE meetings SET status = \'cancelled\', updated_at = ? WHERE org_id = ? AND id IN (' . implode(',', $ids) . ')', [now_utc(), org_id()]);
+
+        // The calendar event of a series is one event for all dates (it belongs to the first meeting). Only remove it when the whole series goes.
+        $master = $inSeries ? (DB::one('SELECT id, platform, external_event_id FROM meetings WHERE id = ?', [$m['series_id']]) ?: $m) : $m;
+        $calendarNote = '';
+        if ($master['external_event_id']) {
+            if (!$inSeries || ($following && (int)$master['id'] === $id)) {
+                try {
+                    $master['platform'] === 'meet' ? GoogleCalendar::cancelEvent(org_id(), $master['external_event_id']) : MicrosoftGraph::cancelEvent(org_id(), $master['external_event_id']);
+                } catch (\Throwable $e) {
+                    flash('error', 'The calendar event couldn’t be cancelled: ' . $e->getMessage());
+                }
+            } else {
+                $calendarNote = ' Your ' . platform_label((string)$master['platform']) . ' calendar entry still lists ' . (count($ids) === 1 ? 'that date' : 'those dates') . '. Remove ' . (count($ids) === 1 ? 'it' : 'them') . ' there if needed.';
             }
         }
+
         $invitees = Meetings::invitees($id);
         $organizer = ['name' => $m['organizer_name'], 'email' => $m['organizer_email']];
-        $ics = Ics::invite($m, $organizer, $invitees, 'Cancelled', 'CANCEL');
+        $icsOpts = $inSeries ? ['uid_id' => (int)$m['series_id'], 'recurrence_id' => gmdate('Ymd\THis\Z', strtotime($m['starts_at_utc'] . ' UTC')), 'future' => $following] : [];
+        $ics = Ics::invite($m, $organizer, $invitees, 'Cancelled', 'CANCEL', $icsOpts);
+        $what = count($ids) > 1 ? 'this meeting and the ' . (count($ids) - 1) . ' after it' : $m['title'];
+        $mailLine = $following && count($ids) > 1
+            ? '<p>' . e(user()['name']) . ' cancelled <b>' . e($m['title']) . '</b> from ' . e(fmt_date($m['meeting_date'])) . ', ' . e(fmt_range($m)) . ' onwards: ' . e(plural(count($ids), 'meeting')) . ' in the series.</p>'
+            : '<p>' . e(user()['name']) . ' cancelled <b>' . e($m['title']) . '</b> planned for ' . e(fmt_date($m['meeting_date'])) . ', ' . e(fmt_range($m)) . '.</p>';
         foreach ($invitees as $i) {
             if ((int)$i['id'] === uid()) continue;
             if ($m['sent_email'] || !$m['sent_whatsapp']) {
-                $html = Notifier::layout('Cancelled: ' . $m['title'], '<p>' . e(user()['name']) . ' cancelled <b>' . e($m['title']) . '</b> planned for ' . e(fmt_date($m['meeting_date'])) . ', ' . e(fmt_time($m['start_time'])) . '.</p>', null, null, user()['org_name']);
-                Notifier::email(org_id(), $i['email'], $i['name'], 'Cancelled: ' . $m['title'], $html, $m['external_event_id'] ? [] : [['name' => 'cancel.ics', 'mime' => 'text/calendar; method=CANCEL; charset=UTF-8', 'content' => $ics]]);
+                $html = Notifier::layout('Cancelled: ' . $m['title'], $mailLine, null, null, user()['org_name']);
+                Notifier::email(org_id(), $i['email'], $i['name'], 'Cancelled: ' . $m['title'] . ' · ' . fmt_date($m['meeting_date'], false), $html, $master['external_event_id'] ? [] : [['name' => 'cancel.ics', 'mime' => 'text/calendar; method=CANCEL; charset=UTF-8', 'content' => $ics]]);
             }
-            if ($m['sent_whatsapp'] && $i['phone']) Notifier::whatsapp(org_id(), (string)$i['phone'], $i['name'], 'Cancelled: "' . $m['title'] . '" planned for ' . fmt_date($m['meeting_date']) . ', ' . fmt_time($m['start_time']) . '.');
-            Notifier::inApp((int)$i['id'], '"' . $m['title'] . '" was cancelled', 'meetings/' . $id);
+            if ($m['sent_whatsapp'] && $i['phone']) Notifier::whatsapp(org_id(), (string)$i['phone'], $i['name'], 'Cancelled: "' . $m['title'] . '" planned for ' . fmt_date($m['meeting_date']) . ', ' . fmt_range($m) . ($following && count($ids) > 1 ? ' and the ' . (count($ids) - 1) . ' meetings after it.' : '.'));
+            Notifier::inApp((int)$i['id'], '"' . $m['title'] . '" ' . ($following && count($ids) > 1 ? '(' . fmt_date($m['meeting_date'], false) . ' and ' . (count($ids) - 1) . ' later) was cancelled' : '(' . fmt_date($m['meeting_date'], false) . ') was cancelled'), 'meetings/' . $id);
         }
-        Audit::log('meeting.cancelled', 'meeting', $id);
-        flash('success', 'Meeting cancelled and invitees notified.');
+        foreach ($ids as $cid) Audit::log('meeting.cancelled', 'meeting', $cid);
+        flash('success', ucfirst($what === $m['title'] ? 'Meeting' : $what) . ' cancelled and invitees notified.' . $calendarNote);
         redirect('meetings/' . $id);
     }
 

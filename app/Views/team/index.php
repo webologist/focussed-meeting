@@ -3,9 +3,10 @@ use App\Controllers\AccountController;
 $admins = array_filter($members, fn($m) => $m['role'] === 'admin' && $m['status'] === 'active');
 $statusPill = ['active' => '', 'invited' => '<span class="pill s-pending">Invited</span>', 'disabled' => '<span class="pill p-high">Blocked</span>'];
 $takers = array_filter($members, fn($m) => $m['status'] === 'active');
+$nu = $_SESSION['_team_new'] ?? []; unset($_SESSION['_team_new']);
 ?>
 <div class="head"><div><div class="eyebrow">Settings</div><h1>Team &amp; roles</h1><p class="muted"><?= e($org['name']) ?> · <?= plural(count(array_filter($members, fn($m) => $m['status'] !== 'disabled')), 'member') ?></p></div></div>
-<p class="role-note"><b>Admin</b> assigns tasks to anyone, invites new people, sends reminders to others, manages integrations and roles, and sees reports. <b>Participant</b> plans meetings for their projects, sees their own meetings and tasks, writes minutes, asks the host to add discussion points, hands tasks to teammates, and sets personal reminders. The <b>host</b> (organiser) of a meeting manages it, prints its documents and approves completed action items.</p>
+<p class="role-note"><b>Admin</b> assigns tasks to anyone, invites new people or creates their account with a password, sends reminders to others, manages integrations and roles, and sees reports. <b>Participant</b> plans meetings for their projects, sees their own meetings and tasks, writes minutes, asks the host to add discussion points, hands tasks to teammates, and sets personal reminders. The <b>host</b> (organiser) of a meeting manages it, prints its documents and approves completed action items.</p>
 
 <?php if (is_admin()): ?>
 <form class="panel" method="post" action="<?= e(path('team/invite')) ?>"><?= csrf_field() ?>
@@ -18,6 +19,23 @@ $takers = array_filter($members, fn($m) => $m['status'] === 'active');
     <button class="btn primary" type="submit"><?= icon('send', 15) ?>Invite</button>
   </div></div></form>
 <?php endif; ?>
+
+<form class="panel" method="post" action="<?= e(path('team/create')) ?>" id="create-user" autocomplete="off"><?= csrf_field() ?>
+  <div class="panel-h"><h2>Create a user with a password</h2><span class="faint small">They can sign in straight away, no email needed</span></div>
+  <div class="panel-b stack">
+    <div class="fields">
+      <label class="f">Name<input type="text" name="name" value="<?= e($nu['name'] ?? '') ?>" required maxlength="120" autocomplete="off"></label>
+      <label class="f">Email (their sign-in)<input type="email" name="email" value="<?= e($nu['email'] ?? '') ?>" required autocomplete="off"></label>
+      <label class="f">WhatsApp <span class="hint">optional</span><input type="tel" name="phone" value="<?= e($nu['phone'] ?? '') ?>" autocomplete="off"></label>
+      <label class="f">Role<select name="role"><option value="participant" <?= ($nu['role'] ?? '') !== 'admin' ? 'selected' : '' ?>>Participant</option><option value="admin" <?= ($nu['role'] ?? '') === 'admin' ? 'selected' : '' ?>>Admin</option></select></label>
+    </div>
+    <label class="f">Password <span class="hint">at least 8 characters, letters and numbers</span>
+      <span class="pw-row"><input type="password" name="password" id="new-user-pw" required minlength="8" autocomplete="new-password">
+        <button type="button" class="btn sm" data-toggle-password="#new-user-pw">Show</button>
+        <button type="button" class="btn sm" data-gen-password="#new-user-pw">Generate</button></span></label>
+    <div class="row"><button class="btn primary" type="submit"><?= icon('plus', 15) ?>Create user</button><span class="faint small">Copy the password before you save. It isn’t shown again, and you can set a new one later.</span></div>
+  </div>
+</form>
 
 <div class="panel"><div class="panel-h"><h2>Members</h2><span class="faint small"><?= count($admins) ?> admin<?= count($admins) === 1 ? '' : 's' ?></span></div>
   <div class="tbl-wrap"><table class="compact" style="min-width:640px"><thead><tr><th>Member</th><th>Email</th><th class="num">Open items</th><th>Role</th><?php if (is_admin()): ?><th></th><?php endif; ?></tr></thead><tbody>
@@ -35,6 +53,14 @@ $takers = array_filter($members, fn($m) => $m['status'] === 'active');
         <?php if (!$me): ?><form method="post" action="<?= e(path('team/' . $m['id'] . '/status')) ?>" class="inline"><?= csrf_field() ?>
           <input type="hidden" name="status" value="<?= $m['status'] === 'disabled' ? 'active' : 'disabled' ?>">
           <button class="btn sm ghost" type="submit" <?= $m['status'] === 'disabled' ? '' : 'data-confirm="Block ' . e($m['name']) . '? They won’t be able to sign in. Their items stay in place."' ?>><?= $m['status'] === 'disabled' ? 'Unblock' : 'Block' ?></button></form>
+          <details class="menu" style="display:inline-block"><summary class="btn sm ghost" aria-label="Set password for <?= e($m['name']) ?>">Set password</summary>
+            <form method="post" action="<?= e(path('team/' . $m['id'] . '/password')) ?>" class="menu-pop stack" style="text-align:left;white-space:normal;min-width:280px" autocomplete="off"><?= csrf_field() ?>
+              <div><b>New password for <?= e($m['name']) ?></b><div class="sub">Replaces their current password<?= $m['status'] === 'invited' ? ' and activates their account' : '' ?>.</div></div>
+              <span class="pw-row"><input type="password" name="password" id="pw-<?= (int)$m['id'] ?>" required minlength="8" autocomplete="new-password" aria-label="New password">
+                <button type="button" class="btn sm" data-toggle-password="#pw-<?= (int)$m['id'] ?>">Show</button>
+                <button type="button" class="btn sm" data-gen-password="#pw-<?= (int)$m['id'] ?>">Generate</button></span>
+              <div class="row"><button class="btn sm primary" type="submit" data-confirm="Set a new password for <?= e($m['name']) ?>?">Save password</button></div>
+            </form></details>
           <details class="menu" style="display:inline-block"><summary class="btn sm ghost" style="color:var(--danger,#b42318)" aria-label="Delete <?= e($m['name']) ?>">Delete</summary>
             <form method="post" action="<?= e(path('team/' . $m['id'] . '/delete')) ?>" class="menu-pop stack" style="text-align:left;white-space:normal;min-width:260px"><?= csrf_field() ?>
               <div><b>Delete <?= e($m['name']) ?>?</b><div class="sub">They lose access for good. Past meetings, minutes and comments keep their name.</div></div>

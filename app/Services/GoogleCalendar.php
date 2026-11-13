@@ -114,6 +114,7 @@ final class GoogleCalendar
             'conferenceData' => ['createRequest' => ['requestId' => bin2hex(random_bytes(8)), 'conferenceSolutionKey' => ['type' => 'hangoutsMeet']]],
             'reminders'   => ['useDefault' => true],
         ];
+        if (!empty($m['_rrule'])) $body['recurrence'] = ['RRULE:' . $m['_rrule']]; // recurring series: one event that repeats
         $r = Http::request('POST', 'https://www.googleapis.com/calendar/v3/calendars/primary/events?conferenceDataVersion=1&sendUpdates=all', ['bearer' => $token, 'json' => $body]);
         if ($r['status'] >= 300) {
             $msg = is_array($r['body']) ? ($r['body']['error']['message'] ?? 'Unknown error') : 'Unknown error';

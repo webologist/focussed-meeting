@@ -20,6 +20,11 @@ return [
         'allow_signups' => true,
     ],
 
+    'meetings' => [
+        // In-app pop-up this many minutes before a meeting starts. (A second alert always appears 5 minutes before it ends.)
+        'alert_before_start_min' => 10,
+    ],
+
     'db' => [
         'host'     => '127.0.0.1',
         'port'     => 3306,
@@ -67,7 +72,8 @@ return [
     ],
 
     'uploads' => [
-        'max_bytes'     => 5 * 1024 * 1024,   // per image
-        'max_per_note'  => 6,
+        'max_bytes'      => 5 * 1024 * 1024,    // per image
+        'max_file_bytes' => 10 * 1024 * 1024,   // per document (PDF, Office, CSV, text)
+        'max_per_note'   => 6,                  // files per note, images and documents together
     ],
 ];

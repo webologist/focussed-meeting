@@ -128,6 +128,22 @@ function fmt_time(?string $hm): string
     return ($h % 12 ?: 12) . ':' . str_pad((string)$m, 2, '0', STR_PAD_LEFT) . ' ' . ($h >= 12 ? 'PM' : 'AM');
 }
 
+/** Minutes since midnight for an H:i time. */
+function time_to_min(string $hm): int { [$h, $m] = array_map('intval', explode(':', $hm)); return $h * 60 + $m; }
+
+/** H:i for minutes since midnight (capped at 23:59). */
+function min_to_time(int $mins): string { $mins = max(0, min(23 * 60 + 59, $mins)); return sprintf('%02d:%02d', intdiv($mins, 60), $mins % 60); }
+
+/** The To time of a meeting (H:i). Old rows without end_time use start + duration. */
+function meeting_end(array $m): string
+{
+    if (!empty($m['end_time'])) return substr((string)$m['end_time'], 0, 5);
+    return min_to_time(time_to_min((string)$m['start_time']) + (int)($m['duration_min'] ?? 30));
+}
+
+/** "11:00 AM – 12:00 PM" */
+function fmt_range(array $m): string { return fmt_time($m['start_time']) . ' – ' . fmt_time(meeting_end($m)); }
+
 /** Convert a UTC datetime string into the user's timezone, formatted. */
 function fmt_local(?string $utc, string $format = 'j M Y, g:i A'): string
 {

@@ -109,7 +109,7 @@ final class ActionController
         $images = [];
         if ($notes) {
             [$in, $p] = DB::in(array_column($notes, 'id'));
-            foreach (DB::all("SELECT id, note_id FROM note_images WHERE note_id IN $in ORDER BY id", $p) as $img) $images[(int)$img['note_id']][] = (int)$img['id'];
+            foreach (DB::all("SELECT id, note_id, mime, original_name, size_bytes FROM note_images WHERE note_id IN $in ORDER BY id", $p) as $img) $images[(int)$img['note_id']][] = $img;
         }
         $comments = DB::all('SELECT k.*, u.name FROM action_comments k JOIN users u ON u.id = k.user_id WHERE k.action_id = ? ORDER BY k.created_at, k.id', [$id]);
         $deps = Actions::dependencies($id);
@@ -205,33 +205,52 @@ final class ActionController
         redirect('actions/' . $id . '#comments');
     }
 
-    /** Assignee notes with images. Only the responsible person may add them. */
+    /** Document types that can be attached next to images. The extension decides, and the file content is checked against it. */
+    private const DOC_TYPES = [
+        'pdf'  => 'application/pdf',
+        'doc'  => 'application/msword',
+        'docx' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'xls'  => 'application/vnd.ms-excel',
+        'xlsx' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'ppt'  => 'application/vnd.ms-powerpoint',
+        'pptx' => 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        'odt'  => 'application/vnd.oasis.opendocument.text',
+        'ods'  => 'application/vnd.oasis.opendocument.spreadsheet',
+        'csv'  => 'text/csv',
+        'txt'  => 'text/plain',
+    ];
+    private const IMAGE_EXT = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp', 'image/gif' => 'gif'];
+
+    /** Notes with images and documents. Anyone who can see the task can add them while it is still open. */
     public function note(int $id): void
     {
         $a = Access::action($id);
-        if ((int)$a['owner_id'] !== uid()) abort(403, 'Only the person responsible can add notes to this item.');
-        $body = (string)input('body');
-        $files = self::uploadedImages();
-        if ($body === '' && !$files) { flash('error', 'Write a note or add an image first.'); redirect('actions/' . $id); }
+        if ($a['status'] === 'done') { flash('error', 'This item is approved, so notes are closed. Reopen it to add more.'); redirect('actions/' . $id); }
+        $body = trim((string)input('body'));
+        $files = self::uploadedFiles();
+        if ($body === '' && !$files) { flash('error', 'Write a note or attach a file first.'); redirect('actions/' . $id); }
         $max = (int)config('uploads.max_per_note', 6);
-        if (count($files) > $max) { flash('error', "Up to $max images per note."); redirect('actions/' . $id); }
-        $noteId = DB::insert('action_notes', ['action_id' => $id, 'user_id' => uid(), 'body' => $body ?: null, 'created_at' => now_utc()]);
+        if (count($files) > $max) { flash('error', "Up to $max files per note."); redirect('actions/' . $id); }
+        $noteId = DB::insert('action_notes', ['action_id' => $id, 'user_id' => uid(), 'body' => $body !== '' ? mb_substr($body, 0, 8000) : null, 'created_at' => now_utc()]);
         $dir = STORAGE_PATH . '/uploads/' . org_id();
         if (!is_dir($dir)) mkdir($dir, 0750, true);
-        $saved = 0;
+        $images = 0; $docs = 0; $skipped = 0;
         foreach ($files as $f) {
-            $err = self::validateImage($f);
-            if ($err) { flash('error', $f['name'] . ': ' . $err); continue; }
-            $ext = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp', 'image/gif' => 'gif'][$f['mime']];
+            [$kind, $ext, $mime, $err] = self::classify($f);
+            if ($err) { flash('error', $f['name'] . ': ' . $err); $skipped++; continue; }
             $name = bin2hex(random_bytes(16)) . '.' . $ext;
             if (move_uploaded_file($f['tmp_name'], "$dir/$name")) {
-                DB::insert('note_images', ['note_id' => $noteId, 'org_id' => org_id(), 'stored_name' => $name, 'mime' => $f['mime'], 'size_bytes' => $f['size'], 'created_at' => now_utc()]);
-                $saved++;
-            }
+                DB::insert('note_images', ['note_id' => $noteId, 'org_id' => org_id(), 'stored_name' => $name, 'original_name' => self::cleanName($f['name']), 'mime' => $mime, 'size_bytes' => $f['size'], 'created_at' => now_utc()]);
+                $kind === 'image' ? $images++ : $docs++;
+            } else $skipped++;
         }
-        if ((int)$a['created_by'] !== uid()) Notifier::inApp((int)$a['created_by'], user()['name'] . ' added a note to "' . $a['title'] . '"', 'actions/' . $id);
-        Audit::log('action.note', 'action', $id, ['images' => $saved]);
-        flash('success', 'Note added' . ($saved ? ' with ' . plural($saved, 'image') : '') . '.');
+        if ($body === '' && !$images && !$docs) { DB::delete('action_notes', ['id' => $noteId]); redirect('actions/' . $id); } // nothing usable was saved
+        foreach (array_unique([(int)$a['owner_id'], (int)$a['created_by']]) as $to) {
+            if ($to !== uid()) Notifier::inApp($to, user()['name'] . ' added a note to "' . $a['title'] . '"' . ($images + $docs ? ' with ' . plural($images + $docs, 'file') : ''), 'actions/' . $id);
+        }
+        Audit::log('action.note', 'action', $id, ['images' => $images, 'documents' => $docs]);
+        $bits = array_filter([$images ? plural($images, 'image') : null, $docs ? plural($docs, 'document') : null]);
+        flash('success', 'Note added' . ($bits ? ' with ' . implode(' and ', $bits) : '') . '.');
         redirect('actions/' . $id);
     }
 
@@ -246,7 +265,7 @@ final class ActionController
         redirect('actions/' . $id);
     }
 
-    /** Serve an uploaded image after checking the viewer can see the action. */
+    /** Serve an uploaded image or document after checking the viewer can see the action. Documents always download. */
     public function image(int $imageId): void
     {
         $img = DB::one('SELECT i.*, n.action_id FROM note_images i JOIN action_notes n ON n.id = i.note_id WHERE i.id = ? AND i.org_id = ?', [$imageId, org_id()]);
@@ -254,10 +273,14 @@ final class ActionController
         Access::action((int)$img['action_id']);
         $file = STORAGE_PATH . '/uploads/' . (int)$img['org_id'] . '/' . basename($img['stored_name']);
         if (!is_file($file)) abort(404);
+        $isImage = str_starts_with((string)$img['mime'], 'image/');
+        $label = (string)($img['original_name'] ?: $img['stored_name']);
+        $ascii = preg_replace('/[^A-Za-z0-9._-]+/', '_', $label);
         header('Content-Type: ' . $img['mime']);
         header('Content-Length: ' . filesize($file));
         header('Cache-Control: private, max-age=86400');
-        header('Content-Disposition: inline');
+        header('X-Content-Type-Options: nosniff');
+        header('Content-Disposition: ' . ($isImage ? 'inline' : 'attachment') . '; filename="' . $ascii . '"; filename*=UTF-8\'\'' . rawurlencode($label));
         readfile($file);
         exit;
     }
@@ -338,10 +361,11 @@ final class ActionController
         return $owner['name'];
     }
 
-    private static function uploadedImages(): array
+    /** Every file posted from the note form (the form field is "files", older pages used "images"). */
+    private static function uploadedFiles(): array
     {
         $out = [];
-        $f = $_FILES['images'] ?? null;
+        $f = $_FILES['files'] ?? $_FILES['images'] ?? null;
         if (!$f || !is_array($f['name'])) return $out;
         foreach ($f['name'] as $i => $name) {
             if (($f['error'][$i] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) continue;
@@ -351,12 +375,36 @@ final class ActionController
         return $out;
     }
 
-    private static function validateImage(array $f): ?string
+    /** @return array{0:string,1:string,2:string,3:?string} kind (image|doc), extension to store, mime to serve, error */
+    private static function classify(array $f): array
     {
-        if ($f['error'] !== UPLOAD_ERR_OK) return 'upload failed. Try a smaller file.';
-        if ($f['size'] > (int)config('uploads.max_bytes', 5242880)) return 'image is larger than ' . round(config('uploads.max_bytes', 5242880) / 1048576) . ' MB.';
-        if (!in_array($f['mime'], ['image/jpeg', 'image/png', 'image/webp', 'image/gif'], true)) return 'only JPG, PNG, WebP or GIF images are allowed.';
-        if (@getimagesize($f['tmp_name']) === false) return 'the file isn’t a valid image.';
-        return null;
+        $fail = fn(string $m) => ['', '', '', $m];
+        if ($f['error'] !== UPLOAD_ERR_OK) return $fail('upload failed. Try a smaller file.');
+        if ($f['size'] <= 0) return $fail('the file is empty.');
+        $ext = strtolower(pathinfo($f['name'], PATHINFO_EXTENSION));
+        if (isset(self::IMAGE_EXT[$f['mime']])) {
+            if ($f['size'] > (int)config('uploads.max_bytes', 5242880)) return $fail('image is larger than ' . round(config('uploads.max_bytes', 5242880) / 1048576) . ' MB.');
+            if (@getimagesize($f['tmp_name']) === false) return $fail('the file isn’t a valid image.');
+            return ['image', self::IMAGE_EXT[$f['mime']], $f['mime'], null];
+        }
+        if (!isset(self::DOC_TYPES[$ext])) return $fail('this file type isn’t allowed. Use an image, PDF, Word, Excel, PowerPoint, CSV or text file.');
+        $max = (int)config('uploads.max_file_bytes', 10485760);
+        if ($f['size'] > $max) return $fail('file is larger than ' . round($max / 1048576) . ' MB.');
+        $head = (string)file_get_contents($f['tmp_name'], false, null, 0, 4096);
+        $ok = match ($ext) {
+            'pdf' => str_starts_with($head, '%PDF'),
+            'doc', 'xls', 'ppt' => str_starts_with($head, "\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1"),
+            'docx', 'xlsx', 'pptx', 'odt', 'ods' => str_starts_with($head, 'PK'),
+            default => !str_contains($head, "\0") && mb_check_encoding($head, 'UTF-8') || !str_contains($head, "\0") && str_starts_with((string)$f['mime'], 'text/'),
+        };
+        if (!$ok) return $fail('the content doesn’t match a ' . strtoupper($ext) . ' file.');
+        return ['doc', $ext, self::DOC_TYPES[$ext], null];
+    }
+
+    private static function cleanName(string $n): string
+    {
+        $n = preg_replace('#[\x00-\x1F\x7F\\\\/]+#u', '', basename(str_replace('\\', '/', $n))) ?? '';
+        $n = trim($n);
+        return mb_substr($n !== '' ? $n : 'file', 0, 150);
     }
 }

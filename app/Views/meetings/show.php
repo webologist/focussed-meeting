@@ -16,6 +16,34 @@ $canAsk = $isInvitee && !$isHost && $m['status'] === 'scheduled';
 $automatic = $m['sent_email'] || $m['sent_whatsapp'];
 $channels = array_filter([$m['sent_email'] ? 'Email' : null, $m['sent_whatsapp'] ? 'WhatsApp' : null, $m['sent_personal'] ? 'Personal invite' : null]);
 $reqPill = ['pending' => '<span class="pill s-pending">Waiting for the host</span>', 'approved' => '<span class="pill s-done">Added to the agenda</span>', 'declined' => '<span class="pill s-neutral">Declined</span>'];
+/** Attendance: the host marks it. An attendee can say "I attended" and the host approves or declines. */
+$attOpen = $isInvitee && !$isHost && !$locked && time() >= strtotime($m['starts_at_utc'] . ' UTC') - 15 * 60;
+$attPending = count(array_filter($invitees, fn($i) => ($i['attend_req'] ?? '') === 'pending' && !$i['attended']));
+$attendancePanel = function () use ($m, $invitees, $canManage, $locked, $attOpen, $attPending): string {
+    $act = fn(int $uid, string $a, string $label, string $cls = '') => '<form method="post" action="' . e(path('meetings/' . $m['id'] . '/attendance')) . '" class="inline">' . csrf_field()
+        . '<input type="hidden" name="user_id" value="' . $uid . '"><button class="btn sm ' . $cls . '" name="action" value="' . $a . '" type="submit">' . $label . '</button></form>';
+    ob_start(); ?>
+  <div class="panel" id="attendance"><div class="panel-h"><h2>Attendance</h2><span class="faint small"><?= count(array_filter($invitees, fn($i) => $i['attended'])) ?> of <?= count($invitees) ?> present<?= $attPending && $canManage ? ' · ' . $attPending . ' to approve' : '' ?></span></div>
+    <div class="panel-b stack">
+      <?php if ($canManage && !$locked): ?><div class="faint small">Mark who was there. Invitees can also say they attended, and you approve or decline.</div>
+      <?php elseif ($locked): ?><div class="faint small">The minutes are locked, so attendance is fixed. The host can unlock them to change it.</div>
+      <?php elseif ($attOpen): ?><div class="faint small">Say you attended. The host confirms it.</div><?php endif; ?>
+      <?php foreach ($invitees as $i): $uid = (int)$i['id']; $req = (string)($i['attend_req'] ?? '');
+        if ($i['attended']) $pill = '<span class="pill s-done">Present</span>';
+        elseif ($req === 'pending') $pill = '<span class="pill s-pending">Awaiting approval</span>';
+        elseif ($req === 'declined') $pill = '<span class="pill p-high">Not approved</span>';
+        else $pill = '<span class="pill s-neutral">Not marked</span>'; ?>
+      <div class="li"><?= avatar($i) ?><div style="min-width:0"><div class="title"><?= e($i['name']) ?><?= $uid === uid() ? ' (you)' : '' ?></div></div>
+        <div class="att-act"><?= $pill ?>
+          <?php if ($canManage && !$locked): ?>
+            <?php if ($req === 'pending' && !$i['attended']): ?><?= $act($uid, 'approve', 'Approve', 'primary') ?><?= $act($uid, 'decline', 'Decline') ?>
+            <?php elseif ($i['attended']): ?><?= $act($uid, 'unmark', 'Mark absent') ?>
+            <?php else: ?><?= $act($uid, 'mark', 'Mark present') ?><?php endif; ?>
+          <?php elseif ($uid === uid() && $attOpen && !$i['attended'] && $req !== 'pending'): ?><?= $act($uid, 'request', $req === 'declined' ? 'Ask again' : 'I attended', 'primary') ?><?php endif; ?>
+        </div></div>
+      <?php endforeach; ?>
+    </div></div>
+<?php return ob_get_clean(); };
 /** "By Admin’s permission": the host reviews points invitees asked to add. */
 $requestsPanel = function () use ($m, $pending, $reviewed, $reqPill, $locked): string {
     ob_start(); ?>
@@ -50,10 +78,15 @@ $requestsPanel = function () use ($m, $pending, $reviewed, $reqPill, $locked): s
 <div><a class="btn ghost sm" href="<?= e(path('meetings')) ?>"><?= icon('back', 14) ?>All meetings</a></div>
 <div class="head">
   <div style="min-width:0">
-    <div class="row" style="gap:8px"><div class="eyebrow"><?= e(fmt_date($m['meeting_date'])) ?> · <?= e(fmt_time($m['start_time'])) ?> · <?= e(platform_label($m['platform'])) ?></div><span class="pill <?= $cls ?>"><?= e($label) ?></span>
+    <div class="row" style="gap:8px"><div class="eyebrow"><?= e(fmt_date($m['meeting_date'])) ?> · <?= e(fmt_range($m)) ?> · <?= e(platform_label($m['platform'])) ?></div><span class="pill <?= $cls ?>"><?= e($label) ?></span>
       <?php if ($project): ?><a class="pill s-project" href="<?= e(path('meetings', ['project' => $project['id']])) ?>"><?= e($project['name']) ?></a><?php endif; ?></div>
     <h1 style="margin-top:4px"><?= e($m['title']) ?></h1>
     <p class="muted" style="overflow-wrap:anywhere"><?= preg_match('~^https?://~', $where) ? '<a href="' . e($where) . '" target="_blank" rel="noopener">' . e($where) . '</a>' : e($where) ?> · Host: <?= $isHost ? 'you' : e($m['organizer_name']) ?> · <?= (int)$m['duration_min'] ?> min · <?= e($m['timezone']) ?></p>
+    <?php if ($series): $nextRow = null; $prevRow = null; foreach ($series['rows'] as $ri => $r) { if ((int)$r['id'] === (int)$m['id']) { $prevRow = $series['rows'][$ri - 1] ?? null; $nextRow = $series['rows'][$ri + 1] ?? null; } } ?>
+    <p class="muted small" style="margin-top:2px">↻ Meeting <?= (int)$series['position'] ?> of <?= (int)$series['count'] ?> · <?= e($series['sentence']) ?>
+      <?php if ($prevRow): ?> · <a href="<?= e(path('meetings/' . $prevRow['id'])) ?>">← <?= e(fmt_date($prevRow['meeting_date'], false)) ?></a><?php endif; ?>
+      <?php if ($nextRow): ?> · <a href="<?= e(path('meetings/' . $nextRow['id'])) ?>"><?= e(fmt_date($nextRow['meeting_date'], false)) ?> →</a><?php endif; ?></p>
+    <?php endif; ?>
   </div>
   <div class="row">
     <a class="btn" href="<?= e(path('meetings/' . $m['id'] . '/ics')) ?>"><?= icon('cal', 15) ?>Add to calendar</a>
@@ -73,7 +106,17 @@ $requestsPanel = function () use ($m, $pending, $reviewed, $reqPill, $locked): s
       <a class="btn primary" href="<?= e(path('meetings/' . $m['id'] . '/mom')) ?>"><?= icon('doc', 15) ?>Minutes of meeting</a>
     <?php elseif ($m['status'] === 'scheduled' && $canManage): ?>
       <?php if ($automatic): ?><form method="post" action="<?= e(path('meetings/' . $m['id'] . '/resend')) ?>" class="inline"><?= csrf_field() ?><button class="btn" type="submit" data-confirm="Send the invite again to everyone?">Resend</button></form><?php endif; ?>
+      <?php if ($series): $laterCount = count(array_filter($series['rows'], fn($r) => $r['status'] === 'scheduled' && ($r['meeting_date'] > $m['meeting_date'] || ($r['meeting_date'] === $m['meeting_date'] && $r['start_time'] >= $m['start_time'])))); ?>
+      <details class="menu"><summary class="btn">Cancel meeting</summary>
+        <form method="post" action="<?= e(path('meetings/' . $m['id'] . '/cancel')) ?>" class="menu-pop stack" style="text-align:left;white-space:normal;min-width:270px"><?= csrf_field() ?>
+          <div><b>Cancel which meetings?</b><div class="sub">Invitees are told either way.</div></div>
+          <label class="check"><input type="radio" name="scope" value="this" checked><span>Only this meeting (<?= e(fmt_date($m['meeting_date'], false)) ?>)</span></label>
+          <?php if ($laterCount > 1): ?><label class="check"><input type="radio" name="scope" value="following"><span>This and all later meetings in the series (<?= (int)$laterCount ?>)</span></label><?php endif; ?>
+          <div class="row"><button class="btn sm primary" type="submit" data-confirm="Cancel and notify all invitees?">Cancel meeting</button></div>
+        </form></details>
+      <?php else: ?>
       <form method="post" action="<?= e(path('meetings/' . $m['id'] . '/cancel')) ?>" class="inline"><?= csrf_field() ?><button class="btn" type="submit" data-confirm="Cancel this meeting and notify all invitees?">Cancel meeting</button></form>
+      <?php endif; ?>
       <form method="post" action="<?= e(path('meetings/' . $m['id'] . '/complete')) ?>" class="inline"><?= csrf_field() ?><button class="btn primary" type="submit">Meeting is over, add minutes</button></form>
     <?php endif; ?>
   </div>
@@ -95,6 +138,8 @@ $requestsPanel = function () use ($m, $pending, $reviewed, $reqPill, $locked): s
         <?php foreach (['yes' => 'Yes', 'maybe' => 'Maybe', 'no' => 'No'] as $k => $l): ?><button class="btn sm <?= $myRsvp === $k ? 'primary' : '' ?>" name="rsvp" value="<?= $k ?>" type="submit"><?= $l ?></button><?php endforeach; ?></form>
     </div></div>
     <?php endif; ?>
+
+    <?php if ($canManage || $isInvitee): ?><?= $attendancePanel() ?><?php endif; ?>
 
     <?php if ($m['personal_note']): ?>
     <div class="panel"><div class="panel-b"><div class="eyebrow">Message from <?= $isHost ? 'you' : e($m['organizer_name']) ?></div><p class="note-text"><?= e($m['personal_note']) ?></p></div></div>
@@ -185,13 +230,9 @@ $requestsPanel = function () use ($m, $pending, $reviewed, $reqPill, $locked): s
   <?php if ($isHost): ?><form method="post" action="<?= e(path('meetings/' . $m['id'] . '/minutes/unlock')) ?>" class="inline"><?= csrf_field() ?><button class="btn sm" type="submit">Edit minutes</button></form><?php endif; ?></div>
 <?php endif; ?>
 <?php if ($canManage && ($pending || $reviewed)): ?><?= $requestsPanel() ?><?php endif; ?>
+<?php if ($canManage || $isInvitee): ?><?= $attendancePanel() ?><?php endif; ?>
 <form method="post" action="<?= e(path('meetings/' . $m['id'] . '/minutes')) ?>" id="<?= $locked ? 'minutes-view' : 'minutes-form' ?>" class="stack">
   <?= csrf_field() ?>
-  <div class="panel"><div class="panel-h"><h2>Attendance</h2><span class="faint small"><?= count(array_filter($invitees, fn($i) => $i['attended'])) ?> of <?= count($invitees) ?> present<?= $canManage ? ' · tap to toggle' : '' ?></span></div>
-    <div class="panel-b"><div class="attend">
-      <?php if ($canManage): ?><input type="hidden" name="attendance_submitted" value="1"><?php endif; ?>
-      <?php foreach ($invitees as $i): ?><label class="<?= $i['attended'] ? '' : 'off' ?>"><input type="checkbox" name="attended[]" value="<?= (int)$i['id'] ?>" <?= $i['attended'] ? 'checked' : '' ?> <?= $canManage && !$locked ? '' : 'disabled' ?>><?= avatar($i) ?><?= e($i['name']) ?></label><?php endforeach; ?>
-    </div></div></div>
 
   <div class="stack" id="points">
   <?php foreach ($agenda as $n => $p): $pa = $byPoint[(int)$p['id']] ?? []; ?>

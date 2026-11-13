@@ -6,7 +6,11 @@ namespace App\Services;
 /** iCalendar (.ics) invite so the meeting lands in any calendar app. */
 final class Ics
 {
-    public static function invite(array $m, array $organizer, array $attendees, string $description, string $method = 'REQUEST'): string
+    /**
+     * $m['_rrule'] (set for the first meeting of a recurring series) makes the invite repeat.
+     * $opts for cancelling one date of a series: uid_id (the series' first meeting), recurrence_id (UTC start of that date), and future (true = this date and all later ones).
+     */
+    public static function invite(array $m, array $organizer, array $attendees, string $description, string $method = 'REQUEST', array $opts = []): string
     {
         $start = new \DateTime($m['starts_at_utc'], new \DateTimeZone('UTC'));
         $end = (clone $start)->modify('+' . (int)$m['duration_min'] . ' minutes');
@@ -14,10 +18,12 @@ final class Ics
         $lines = [
             'BEGIN:VCALENDAR', 'PRODID:-//MeetFlow//EN', 'VERSION:2.0', 'CALSCALE:GREGORIAN', "METHOD:$method",
             'BEGIN:VEVENT',
-            'UID:meeting-' . $m['id'] . '@' . $host,
+            'UID:meeting-' . ($opts['uid_id'] ?? $m['id']) . '@' . $host,
             'DTSTAMP:' . gmdate('Ymd\THis\Z'),
             'DTSTART:' . $start->format('Ymd\THis\Z'),
             'DTEND:' . $end->format('Ymd\THis\Z'),
+            ...(!empty($opts['recurrence_id']) ? ['RECURRENCE-ID' . (!empty($opts['future']) ? ';RANGE=THISANDFUTURE' : '') . ':' . $opts['recurrence_id']] : []),
+            ...(!empty($m['_rrule']) && $method !== 'CANCEL' ? ['RRULE:' . $m['_rrule']] : []),
             'SUMMARY:' . self::esc($m['title']),
             'DESCRIPTION:' . self::esc($description),
             'LOCATION:' . self::esc($m['platform'] === 'inperson' ? (string)$m['location'] : (string)$m['join_url']),

@@ -7,12 +7,14 @@ Plain **PHP 8 + MySQL**, no framework and no Composer, so it runs on ordinary sh
 
 **For every company (tenant)**
 - Compulsory registration. A company signs up, the first user becomes **Admin**, and invites the rest of the team.
-- Roles: **Admin** (assigns tasks to anyone, invites people, sends reminders to others, reports, integrations, roles) and **Participant** (plans meetings, own tasks, minutes, notes and images, personal reminders). The organiser of a meeting is its **host**: manages it, prints its documents and approves its completed action items.
+- Roles: **Admin** (assigns tasks to anyone, invites people or creates their account with a password, sends reminders to others, reports, integrations, roles) and **Participant** (plans meetings, own tasks, minutes, notes and images, personal reminders). The organiser of a meeting is its **host**: manages it, prints its documents and approves its completed action items.
 - Each company connects **its own** email (Gmail, Outlook, Zoho, Hostinger or any SMTP), **Google Meet**, **Microsoft Teams** and, optionally, **WhatsApp Business**. **Quick connect** signs in with Google or Microsoft once (OAuth consent) and covers meetings and email together; a company can register its own OAuth app from the Integrations page. Credentials are encrypted at rest (AES-256-GCM).
 - **Projects** group meetings and tasks; anyone can start one, and meetings, the task list and the planner filter by project.
 
 **Meetings**
 - Meetings list and planner on one page. Agenda points have a title, details, presenter, time and sub-points, with a time budget against the meeting length.
+- **From and To time** on every meeting (the length is worked out from them). **Recurring meetings**: repeat daily, on weekdays, weekly, every 2 weeks or monthly until a date (up to 60 dates). Each date is its own meeting with its own minutes and tasks, and invitees get one invite for the whole series (with a repeating calendar entry). Cancel one date or all later ones.
+- **In-app alerts**: a pop-up 10 minutes before a meeting starts (`meetings.alert_before_start_min` in config.php) and another 5 minutes before it ends, for the host and everyone invited who hasn't declined. Each alert is also kept in the Alerts list.
 - Invites go out from the company’s own email with an `.ics` calendar file, or as Google Calendar / Outlook invites with a Meet or Teams link created automatically. WhatsApp invites are optional. A **personal invite** option prints a signed invitation letter per invitee for the host to hand out, and an optional personal message goes with every invite.
 - Attendees can **ask to add a discussion point**; requests wait under **By Admin’s permission** until the host approves or declines them with a message.
 - RSVP, cancel with calendar cancellation.

@@ -139,8 +139,9 @@ CREATE TABLE meetings (
   organizer_id       INT UNSIGNED NOT NULL,
   title              VARCHAR(200) NOT NULL,
   meeting_date       DATE NOT NULL,              -- local date in the meeting timezone
-  start_time         CHAR(5) NOT NULL,           -- HH:MM local
-  duration_min       SMALLINT UNSIGNED NOT NULL DEFAULT 30,
+  start_time         CHAR(5) NOT NULL,           -- HH:MM local (From)
+  end_time           CHAR(5) NULL,               -- HH:MM local (To), same day, NULL on old rows = start + duration
+  duration_min       SMALLINT UNSIGNED NOT NULL DEFAULT 30,   -- always end_time - start_time, kept for calendars and reports
   timezone           VARCHAR(64) NOT NULL,
   starts_at_utc      DATETIME NOT NULL,
   platform           ENUM('meet','teams','inperson') NOT NULL DEFAULT 'meet',
@@ -155,11 +156,15 @@ CREATE TABLE meetings (
   invite_sent_at     DATETIME NULL,
   mom_sent_at        DATETIME NULL,
   completed_at       DATETIME NULL,
-  minutes_locked_at  DATETIME NULL,              -- set when minutes are saved; the host or an admin can unlock them
+  minutes_locked_at  DATETIME NULL,              -- set when minutes are saved, the host or an admin can unlock them
+  series_id          INT UNSIGNED NULL,          -- recurring meetings: id of the first meeting of the series (NULL = one-off)
+  recurrence         VARCHAR(20) NULL,           -- daily | weekdays | weekly | biweekly | monthly
   created_at         DATETIME NOT NULL,
   updated_at         DATETIME NULL,
   KEY idx_meetings_org_date (org_id, meeting_date),
   KEY idx_meetings_project (project_id),
+  KEY idx_meetings_series (series_id),
+  KEY idx_meetings_start (status, starts_at_utc),
   CONSTRAINT fk_meetings_org FOREIGN KEY (org_id) REFERENCES organizations(id) ON DELETE CASCADE,
   CONSTRAINT fk_meetings_organizer FOREIGN KEY (organizer_id) REFERENCES users(id),
   CONSTRAINT fk_meetings_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL
@@ -169,12 +174,24 @@ CREATE TABLE meetings (
 CREATE TABLE meeting_invitees (
   meeting_id  INT UNSIGNED NOT NULL,
   user_id     INT UNSIGNED NOT NULL,
-  attended    TINYINT(1) NOT NULL DEFAULT 1,
+  attended    TINYINT(1) NOT NULL DEFAULT 0,
+  attend_req  VARCHAR(10) NULL COMMENT 'pending or declined, set when an attendee asks the host to confirm',
   rsvp        ENUM('pending','yes','no','maybe') NOT NULL DEFAULT 'pending',
   PRIMARY KEY (meeting_id, user_id),
   KEY idx_invitee_user (user_id),
   CONSTRAINT fk_inv_meeting FOREIGN KEY (meeting_id) REFERENCES meetings(id) ON DELETE CASCADE,
   CONSTRAINT fk_inv_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- In-app meeting alerts already shown to a person (before start, 5 minutes before the end). One row per alert, so each is shown once.
+CREATE TABLE meeting_alerts (
+  meeting_id  INT UNSIGNED NOT NULL,
+  user_id     INT UNSIGNED NOT NULL,
+  kind        ENUM('start','end') NOT NULL,
+  created_at  DATETIME NOT NULL,
+  PRIMARY KEY (meeting_id, user_id, kind),
+  CONSTRAINT fk_malert_meeting FOREIGN KEY (meeting_id) REFERENCES meetings(id) ON DELETE CASCADE,
+  CONSTRAINT fk_malert_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE agenda_items (
@@ -245,7 +262,7 @@ CREATE TABLE action_dependencies (
   CONSTRAINT fk_dep_on FOREIGN KEY (depends_on_id) REFERENCES actions(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Notes and images: only the person responsible can add them
+-- Notes with images and documents: anyone who can see the task can add them while it is open
 CREATE TABLE action_notes (
   id          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   action_id   INT UNSIGNED NOT NULL,
@@ -262,7 +279,8 @@ CREATE TABLE note_images (
   note_id     INT UNSIGNED NOT NULL,
   org_id      INT UNSIGNED NOT NULL,
   stored_name VARCHAR(80) NOT NULL,             -- random file name inside storage/uploads/{org_id}/
-  mime        VARCHAR(40) NOT NULL,
+  original_name VARCHAR(255) NULL,
+  mime        VARCHAR(100) NOT NULL,
   size_bytes  INT UNSIGNED NOT NULL,
   created_at  DATETIME NOT NULL,
   CONSTRAINT fk_images_note FOREIGN KEY (note_id) REFERENCES action_notes(id) ON DELETE CASCADE

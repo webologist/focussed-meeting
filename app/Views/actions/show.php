@@ -102,30 +102,34 @@ $stepIdx = array_search($a['status'], array_keys($steps), true);
 <?php if ($point && $point['discussion']): ?><div class="point-ctx"><span class="eyebrow">What was discussed</span><p style="margin-top:4px"><?= e($point['discussion']) ?></p></div><?php endif; ?>
 
 <div class="grid2">
-  <div class="panel"><div class="panel-h"><h2>Assignee notes</h2><span class="faint small"><?= plural(count($notes), 'note') ?> from <?= e($a['owner']['name']) ?></span></div>
+  <div class="panel" id="notes"><div class="panel-h"><h2>Notes &amp; attachments</h2><span class="faint small"><?= plural(count($notes), 'note') ?></span></div>
     <div class="panel-b stack">
-      <?php if ($isOwner && !$done): ?>
+      <?php if (!$done): ?>
       <form method="post" action="<?= e(path('actions/' . $a['id'] . '/note')) ?>" enctype="multipart/form-data" class="composer drop" id="note-form">
         <?= csrf_field() ?>
-        <textarea name="body" id="note-body" placeholder="Progress update, findings or proof of completion" aria-label="Note"></textarea>
+        <textarea name="body" id="note-body" placeholder="<?= $isOwner ? 'Progress update, findings or proof of completion' : 'Add context, a question or a file for ' . e($a['owner']['name']) ?>" aria-label="Note"></textarea>
         <div class="thumbs" id="note-previews"></div>
         <div class="bar">
-          <span class="btn sm filebtn"><?= icon('img', 14) ?>Add images<input type="file" name="images[]" id="note-files" accept="image/jpeg,image/png,image/webp,image/gif" multiple aria-label="Add images"></span>
-          <span class="faint small">JPG, PNG, WebP or GIF, up to <?= (int)round(config('uploads.max_bytes', 5242880) / 1048576) ?> MB each</span>
+          <span class="btn sm filebtn"><?= icon('dl', 14) ?>Attach files<input type="file" name="files[]" id="note-files" accept="image/jpeg,image/png,image/webp,image/gif,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.csv,.txt" multiple aria-label="Attach files"></span>
+          <span class="faint small">Images up to <?= (int)round(config('uploads.max_bytes', 5242880) / 1048576) ?> MB. PDF, Word, Excel, PowerPoint, CSV or text up to <?= (int)round(config('uploads.max_file_bytes', 10485760) / 1048576) ?> MB. Max <?= (int)config('uploads.max_per_note', 6) ?> files.</span>
           <button class="btn sm primary" type="submit">Add note</button>
         </div>
       </form>
-      <?php elseif (!$isOwner): ?>
-        <div class="banner"><div>Only <?= e($a['owner']['name']) ?> can add notes and images here. You can comment on the right.</div></div>
+      <?php else: ?>
+        <div class="banner"><div>This item is approved, so notes are closed. Reopen it to add more.</div></div>
       <?php endif; ?>
       <div class="feed">
         <?php if (!$notes): ?><div class="faint small">No notes yet.</div><?php endif; ?>
-        <?php foreach ($notes as $n): ?>
+        <?php foreach ($notes as $n):
+          $files = $images[(int)$n['id']] ?? [];
+          $pics = array_filter($files, fn($f) => str_starts_with((string)$f['mime'], 'image/'));
+          $docs = array_filter($files, fn($f) => !str_starts_with((string)$f['mime'], 'image/')); ?>
         <div class="note"><?= avatar(['id' => $n['user_id'], 'name' => $n['name']]) ?><div class="body">
           <div class="meta"><?= e($n['name']) ?> · <?= e(fmt_local($n['created_at'])) ?>
-            <?php if ((int)$n['user_id'] === uid() || is_admin()): ?> · <form method="post" action="<?= e(path('actions/' . $a['id'] . '/notes/' . $n['id'] . '/delete')) ?>" class="inline"><?= csrf_field() ?><button class="linkish faint" type="submit" data-confirm="Delete this note and its images?">Delete</button></form><?php endif; ?></div>
+            <?php if ((int)$n['user_id'] === uid() || is_admin()): ?> · <form method="post" action="<?= e(path('actions/' . $a['id'] . '/notes/' . $n['id'] . '/delete')) ?>" class="inline"><?= csrf_field() ?><button class="linkish faint" type="submit" data-confirm="Delete this note and its files?">Delete</button></form><?php endif; ?></div>
           <?php if ($n['body']): ?><p><?= e($n['body']) ?></p><?php endif; ?>
-          <?php if (!empty($images[(int)$n['id']])): ?><div class="thumbs"><?php foreach ($images[(int)$n['id']] as $imgId): ?><a class="thumb" href="<?= e(path('images/' . $imgId)) ?>" target="_blank" rel="noopener"><img src="<?= e(path('images/' . $imgId)) ?>" alt="Image from <?= e($n['name']) ?>" loading="lazy"></a><?php endforeach; ?></div><?php endif; ?>
+          <?php if ($pics): ?><div class="thumbs"><?php foreach ($pics as $f): ?><a class="thumb" href="<?= e(path('images/' . $f['id'])) ?>" target="_blank" rel="noopener"><img src="<?= e(path('images/' . $f['id'])) ?>" alt="Image from <?= e($n['name']) ?>" loading="lazy"></a><?php endforeach; ?></div><?php endif; ?>
+          <?php if ($docs): ?><div class="files"><?php foreach ($docs as $f): ?><a class="fchip" href="<?= e(path('images/' . $f['id'])) ?>" download><?= icon('doc', 14) ?><span class="fname"><?= e($f['original_name'] ?: 'File') ?></span><span class="faint small"><?= e(strtoupper(pathinfo((string)$f['original_name'], PATHINFO_EXTENSION))) ?> · <?= $f['size_bytes'] >= 1048576 ? round($f['size_bytes'] / 1048576, 1) . ' MB' : max(1, (int)round($f['size_bytes'] / 1024)) . ' KB' ?></span></a><?php endforeach; ?></div><?php endif; ?>
         </div></div>
         <?php endforeach; ?>
       </div>
