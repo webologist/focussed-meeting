@@ -179,7 +179,7 @@
     if (!get('title')) { box.querySelector('[data-f="title"]').focus(); return; }
     f.agenda_item_id.value = box.dataset.actionForm;
     ['title', 'priority', 'owner_id', 'deadline'].forEach(k => { f[k].value = get(k); });
-    $$('#minutes-form textarea[name^="discussion"]').forEach(t => {
+    $$('#minutes-form textarea[name^="discussion"], #minutes-form textarea[name^="decision"]').forEach(t => {
       const h = document.createElement('input'); h.type = 'hidden'; h.name = t.name; h.value = t.value; f.appendChild(h);
     });
     f.submit();

@@ -40,6 +40,12 @@ $lead = 'The meeting ' . $m['title'] . ' was held on ' . $when . ($m['platform']
     <ol class="disc">
       <?php foreach ($agenda as $pt): ?><li><b><?= e($t($pt['title'])) ?></b><?= $pt['presenter_name'] ? ' <span class="tag">· ' . e($pt['presenter_name']) . '</span>' : '' ?><?= $pt['request_status'] === 'approved' ? ' <span class="tag">· ' . e($t('added with the chair’s permission')) . '</span>' : '' ?><p><?= $pt['discussion'] ? e($t($pt['discussion'])) : '<span class="faint">' . e($t('No minutes recorded.')) . '</span>' ?></p></li><?php endforeach; ?>
     </ol></section>
+  <?php $decided = array_values(array_filter($agenda, fn($pt) => trim((string)($pt['decision'] ?? '')) !== '')); if ($decided): ?>
+  <section><h3><?= e($t('Decisions')) ?></h3>
+    <ol class="disc">
+      <?php foreach ($decided as $pt): ?><li><b><?= e($t($pt['decision'])) ?></b> <span class="tag">· <?= e($t($pt['title'])) ?></span></li><?php endforeach; ?>
+    </ol></section>
+  <?php endif; ?>
   <?php if (!empty($declined)): ?>
   <section><h3><?= e($t('Points requested but not added')) ?></h3>
     <ol class="disc">
@@ -54,6 +60,14 @@ $lead = 'The meeting ' . $m['title'] . ' was held on ' . $when . ($m['platform']
         <td><?= Actions::statusPill($x, $t) ?></td></tr><?php endforeach; ?>
     </tbody></table></div><?php endif; ?>
   </section>
+  <?php if (!empty($carried)): ?>
+  <section><h3><?= e($t('Still pending from earlier meetings')) ?> (<?= count($carried) ?>)</h3>
+    <div class="tbl-wrap"><table class="compact"><thead><tr><th>#</th><th><?= e($t('Action')) ?></th><th><?= e($t('Responsible')) ?></th><th><?= e($t('Deadline')) ?></th><th><?= e($t('Status')) ?></th></tr></thead><tbody>
+      <?php foreach ($carried as $n => $x): ?><tr><td class="mono"><?= $n + 1 ?></td><td><?= e($t($x['title'])) ?><div class="sub"><?= e($t($x['from_title'])) ?> · <?= e(fmt_date($x['from_date'], false)) ?></div></td><td><?= e($x['owner_name']) ?></td>
+        <td class="mono" style="white-space:nowrap"><?= e($t(fmt_date(Actions::effDeadline($x)))) ?></td><td><?= Actions::statusPill($x, $t) ?></td></tr><?php endforeach; ?>
+    </tbody></table></div>
+  </section>
+  <?php endif; ?>
   <?php if ($p): ?>
   <div class="signs"><div><span></span><?= e($t('Prepared by')) ?>: <?= e($m['organizer_name']) ?></div><div><span></span><?= e($t('Approved by')) ?></div></div>
   <?php endif; ?>

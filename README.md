@@ -16,15 +16,19 @@ Plain **PHP 8 + MySQL**, no framework and no Composer, so it runs on ordinary sh
 - **From and To time** on every meeting (the length is worked out from them). **Recurring meetings**: repeat daily, on weekdays, weekly, every 2 weeks or monthly until a date (up to 60 dates). Each date is its own meeting with its own minutes and tasks, and invitees get one invite for the whole series (with a repeating calendar entry). Cancel one date or all later ones.
 - **In-app alerts**: a pop-up 10 minutes before a meeting starts (`meetings.alert_before_start_min` in config.php) and another 5 minutes before it ends, for the host and everyone invited who hasn't declined. Each alert is also kept in the Alerts list.
 - Invites go out from the company’s own email with an `.ics` calendar file, or as Google Calendar / Outlook invites with a Meet or Teams link created automatically. WhatsApp invites are optional. A **personal invite** option prints a signed invitation letter per invitee for the host to hand out, and an optional personal message goes with every invite.
+- **Carried forward**: tasks still open from earlier meetings of the same series (or project) appear at the top of the meeting page and in the minutes.
+- **Decisions**: each agenda point has an optional Decision box. All decisions are searchable on the **Decisions** page (filter by project and date) and listed in the minutes.
 - Attendees can **ask to add a discussion point**; requests wait under **By Admin’s permission** until the host approves or declines them with a message.
 - RSVP, cancel with calendar cancellation.
 - After the meeting: attendance, minutes per point (saving asks for confirmation), points raised in the meeting, action items (priority, responsible person, deadline).
+- **Share to WhatsApp**: one tap sends a short summary (decisions, action items, pending items) with a link; **Seen by 4 of 6** shows the host who has opened the saved minutes.
 - Minutes of Meeting open with a formal attendance section (who was invited, designation, role, present or absent). On screen, copy as text, and email to all attendees.
 - **Printing is for the host only**: invitation, personal invitation letters, attendance register with signatures, minutes of meeting, and action items.
 
 **Follow-up**
 - My dashboard: to-do list, items to approve, all my tasks, assign tasks (admins), reminders first, upcoming meetings, meetings needing attention.
 - Task status: To do → In progress → Completed (awaiting approval) → Approved. The owner confirms before marking complete and can move the item back until the host approves; the host approves or sends it back with a note.
+- Assignees see **Seen** and **Got it** ticks: the person who assigned a task sees ✓ when it is opened and ✓✓ when acknowledged.
 - Hand over: the owner (or whoever assigned it) can reassign an item to another team member with a handover note.
 - All tasks: every task, sortable by assignee, status, priority or deadline, with filters by person, priority and project; new deadline with automatic history, comments, bulk reminders for overdue items.
 - Item page: dependencies ("waits on", with loop protection), assignee notes with images, comments and history.

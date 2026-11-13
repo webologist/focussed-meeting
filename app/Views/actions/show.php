@@ -59,6 +59,13 @@ $stepIdx = array_search($a['status'], array_keys($steps), true);
 <div class="panel"><div class="panel-b kv">
   <div><span class="eyebrow">Responsible</span><?= person_chip($a['owner'], 24) ?></div>
   <div><span class="eyebrow">Assigned by</span><?= person_chip($a['creator'], 24) ?></div>
+  <?php if ((int)$a['created_by'] !== (int)$a['owner_id']): ?>
+  <div><span class="eyebrow">Delivery</span>
+    <?php if (!empty($a['acked_at'])): ?><span class="pill s-done" title="Acknowledged <?= e(fmt_local($a['acked_at'])) ?>">✓✓ Acknowledged</span>
+    <?php elseif (!empty($a['seen_at'])): ?><span class="pill s-sched" title="Opened <?= e(fmt_local($a['seen_at'])) ?>">✓ Seen</span>
+    <?php else: ?><span class="pill s-neutral">Not opened yet</span><?php endif; ?>
+    <?php if ($isOwner && !$done && empty($a['acked_at'])): ?><form method="post" action="<?= e(path('actions/' . $a['id'] . '/ack')) ?>" class="inline"><?= csrf_field() ?><button class="btn sm" type="submit">Got it</button></form><?php endif; ?></div>
+  <?php endif; ?>
   <div><span class="eyebrow">Approved by</span><?= person_chip($approver, 24) ?><span class="sub">host<?= $meeting ? ' of the meeting' : '' ?></span></div>
   <div><span class="eyebrow">Deadline</span><span class="mono <?= $a['new_deadline'] ? 'strike' : '' ?>"><?= e(fmt_date($a['deadline'])) ?></span><?php if (!$a['new_deadline']) echo View::partial('partials/due', ['a' => $a]); ?></div>
   <div><span class="eyebrow">New deadline</span>

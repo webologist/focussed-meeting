@@ -20,6 +20,12 @@ $when = $day . ', ' . fmt_date($m['meeting_date']) . ' at ' . fmt_time($m['start
 <ol style="padding-left:20px;margin:0 0 16px">
 <?php foreach ($agenda as $p): ?><li style="margin-bottom:10px"><b><?= e($t($p['title'])) ?></b><div style="color:#4A5663;white-space:pre-wrap"><?= e($t($p['discussion'] ?: 'No minutes recorded.')) ?></div></li><?php endforeach; ?>
 </ol>
+<?php $decided = array_values(array_filter($agenda, fn($pt) => trim((string)($pt['decision'] ?? '')) !== '')); if ($decided): ?>
+<p style="margin:0 0 6px;font-weight:700"><?= e($t('Decisions')) ?></p>
+<ol style="padding-left:20px;margin:0 0 16px">
+<?php foreach ($decided as $pt): ?><li style="margin-bottom:8px"><b><?= e($t($pt['decision'])) ?></b> <span style="color:#7B8794">· <?= e($t($pt['title'])) ?></span></li><?php endforeach; ?>
+</ol>
+<?php endif; ?>
 <?php if (!empty($declined)): ?>
 <p style="margin:0 0 6px;font-weight:700"><?= e($t('Points requested but not added')) ?></p>
 <ol style="padding-left:20px;margin:0 0 16px">

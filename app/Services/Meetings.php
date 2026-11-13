@@ -275,4 +275,87 @@ final class Meetings
         DB::update('meetings', ['invite_sent_at' => now_utc()], ['id' => $m['id']]);
         return $warnings;
     }
+
+    // ---------------------------------------------------------------- carry-forward, decisions, seen
+
+    /**
+     * Tasks from earlier meetings that are not done yet: the earlier meetings of the same series, or (for a one-off
+     * meeting) of the same project. Only tasks the current user may see. Oldest deadline first.
+     */
+    public static function carriedForward(array $m): array
+    {
+        $p = ['cf_org' => (int)$m['org_id'], 'cf_mid' => (int)$m['id'], 'cf_d1' => $m['meeting_date'], 'cf_d2' => $m['meeting_date'], 'cf_t' => $m['start_time']];
+        if (!empty($m['series_id'])) { $link = 'pm.series_id = :cf_link'; $p['cf_link'] = (int)$m['series_id']; }
+        elseif (!empty($m['project_id'])) { $link = 'pm.project_id = :cf_link'; $p['cf_link'] = (int)$m['project_id']; }
+        else return [];
+        [$vis, $vp] = Access::actionScope('a');
+        return DB::all("SELECT a.*, u.name AS owner_name, pm.title AS from_title, pm.meeting_date AS from_date, pm.id AS from_id
+                          FROM actions a JOIN meetings pm ON pm.id = a.meeting_id JOIN users u ON u.id = a.owner_id
+                         WHERE pm.org_id = :cf_org AND pm.id <> :cf_mid AND $link AND pm.status <> 'cancelled'
+                           AND (pm.meeting_date < :cf_d1 OR (pm.meeting_date = :cf_d2 AND pm.start_time < :cf_t))
+                           AND a.status <> 'done' AND $vis
+                         ORDER BY COALESCE(a.new_deadline, a.deadline), a.id", $p + $vp);
+    }
+
+    /** Points with a decision, newest meeting first, for meetings the user may see. Filters: q (text), project, from, to (dates). */
+    public static function decisions(array $f = []): array
+    {
+        $w = ["m.org_id = :d_org", "ai.decision IS NOT NULL", "ai.decision <> ''", self::ON_AGENDA, "m.status <> 'cancelled'"];
+        $p = ['d_org' => org_id()];
+        if (!is_admin()) {
+            $w[] = '(m.organizer_id = :d_u1 OR EXISTS (SELECT 1 FROM meeting_invitees mi WHERE mi.meeting_id = m.id AND mi.user_id = :d_u2))';
+            $p['d_u1'] = uid(); $p['d_u2'] = uid();
+        }
+        $q = trim((string)($f['q'] ?? ''));
+        if ($q !== '') {
+            $like = '%' . addcslashes($q, '%_\\') . '%';
+            $w[] = '(ai.decision LIKE :d_q1 OR ai.title LIKE :d_q2 OR m.title LIKE :d_q3)';
+            $p['d_q1'] = $p['d_q2'] = $p['d_q3'] = $like;
+        }
+        if (!empty($f['project'])) { $w[] = 'm.project_id = :d_proj'; $p['d_proj'] = (int)$f['project']; }
+        if (!empty($f['from']) && valid_date((string)$f['from'])) { $w[] = 'm.meeting_date >= :d_from'; $p['d_from'] = $f['from']; }
+        if (!empty($f['to']) && valid_date((string)$f['to'])) { $w[] = 'm.meeting_date <= :d_to'; $p['d_to'] = $f['to']; }
+        return DB::all('SELECT ai.id, ai.title AS point_title, ai.decision, m.id AS meeting_id, m.title AS meeting_title, m.meeting_date, p.name AS project_name, u.name AS organizer_name
+                          FROM agenda_items ai JOIN meetings m ON m.id = ai.meeting_id JOIN users u ON u.id = m.organizer_id LEFT JOIN projects p ON p.id = m.project_id
+                         WHERE ' . implode(' AND ', $w) . ' ORDER BY m.meeting_date DESC, m.start_time DESC, ai.position, ai.id LIMIT 300', $p);
+    }
+
+    /** Record that the current user opened the saved minutes (invitees only, once). */
+    public static function markMinutesSeen(array $m): void
+    {
+        if (empty($m['minutes_locked_at']) || (int)$m['organizer_id'] === uid()) return;
+        if (!DB::value('SELECT 1 FROM meeting_invitees WHERE meeting_id = ? AND user_id = ?', [$m['id'], uid()])) return;
+        DB::run('INSERT IGNORE INTO minutes_seen (meeting_id, user_id, first_seen_at) VALUES (?, ?, UTC_TIMESTAMP())', [$m['id'], uid()]);
+    }
+
+    /** Who has and has not opened the minutes (host excluded). */
+    public static function seenSummary(array $m): array
+    {
+        $rows = DB::all('SELECT u.id, u.name, s.first_seen_at FROM meeting_invitees i JOIN users u ON u.id = i.user_id
+                          LEFT JOIN minutes_seen s ON s.meeting_id = i.meeting_id AND s.user_id = i.user_id
+                         WHERE i.meeting_id = ? AND i.user_id <> ? ORDER BY u.name', [$m['id'], $m['organizer_id']]);
+        return ['rows' => $rows, 'seen' => count(array_filter($rows, fn($r) => $r['first_seen_at'])), 'total' => count($rows)];
+    }
+
+    /** Short plain-text summary of the minutes for WhatsApp: decisions, action items, what is still pending. */
+    public static function minutesText(array $m, array $agenda, array $actions, array $invitees, array $carried = []): string
+    {
+        $present = count(array_filter($invitees, fn($i) => (int)$i['attended'] === 1));
+        $out = '*Minutes: ' . $m['title'] . "*\n" . fmt_date($m['meeting_date']) . ', ' . fmt_range($m) . ' · Host: ' . $m['organizer_name'] . "\nPresent: $present of " . count($invitees) . "\n";
+        $dec = array_values(array_filter($agenda, fn($a) => trim((string)($a['decision'] ?? '')) !== ''));
+        if ($dec) {
+            $out .= "\n*Decisions*\n";
+            foreach ($dec as $i => $a) $out .= ($i + 1) . '. ' . trim(preg_replace('/\s+/', ' ', (string)$a['decision'])) . ' (' . $a['title'] . ")\n";
+        }
+        if ($actions) {
+            $out .= "\n*Action items*\n";
+            foreach ($actions as $x) $out .= '• ' . $x['title'] . ' – ' . $x['owner_name'] . ', by ' . fmt_date(Actions::effDeadline($x), false) . "\n";
+        }
+        if ($carried) {
+            $out .= "\n*Still pending from earlier meetings* (" . count($carried) . ")\n";
+            foreach (array_slice($carried, 0, 8) as $x) $out .= '• ' . $x['title'] . ' – ' . $x['owner_name'] . ', by ' . fmt_date(Actions::effDeadline($x), false) . "\n";
+            if (count($carried) > 8) $out .= '…and ' . (count($carried) - 8) . " more\n";
+        }
+        return $out . "\nFull minutes: " . url('meetings/' . $m['id'] . '/mom');
+    }
 }

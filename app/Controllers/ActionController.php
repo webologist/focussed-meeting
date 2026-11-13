@@ -101,6 +101,11 @@ final class ActionController
     public function show(int $id): void
     {
         $a = Access::action($id);
+        // The assignee opening a task someone else gave them marks it as seen
+        if ((int)$a['owner_id'] === uid() && (int)$a['created_by'] !== uid() && empty($a['seen_at'])) {
+            DB::run('UPDATE actions SET seen_at = UTC_TIMESTAMP() WHERE id = ? AND seen_at IS NULL', [$id]);
+            $a['seen_at'] = now_utc();
+        }
         $a['owner'] = DB::one('SELECT id, name, email FROM users WHERE id = ?', [$a['owner_id']]);
         $a['creator'] = DB::one('SELECT id, name FROM users WHERE id = ?', [$a['created_by']]);
         $meeting = $a['meeting_id'] ? DB::one('SELECT id, title, meeting_date FROM meetings WHERE id = ?', [$a['meeting_id']]) : null;
@@ -151,6 +156,20 @@ final class ActionController
         [$ok, $msg] = Actions::move($a, (string)input('status'), (string)input('note'));
         flash($ok ? 'success' : 'error', $msg);
         back('tracker');
+    }
+
+    /** The assignee taps "Got it": the person who gave them the task sees the double tick. */
+    public function ack(int $id): void
+    {
+        $a = Access::action($id);
+        if ((int)$a['owner_id'] !== uid() || (int)$a['created_by'] === uid() || $a['status'] === 'done') abort(403);
+        if (empty($a['acked_at'])) {
+            DB::run('UPDATE actions SET acked_at = UTC_TIMESTAMP(), seen_at = COALESCE(seen_at, UTC_TIMESTAMP()) WHERE id = ? AND acked_at IS NULL', [$id]);
+            Actions::systemComment($id, 'Acknowledged by ' . user()['name']);
+            Notifier::inApp((int)$a['created_by'], user()['name'] . ' acknowledged "' . $a['title'] . '"', 'actions/' . $id);
+        }
+        flash('success', 'Got it. They can see you’ve acknowledged this task.');
+        back('actions/' . $id);
     }
 
     public function approve(int $id): void

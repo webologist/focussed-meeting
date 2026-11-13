@@ -219,7 +219,9 @@ final class MeetingController
         foreach ($invitees as $i) if ((int)$i['id'] === uid()) $myRsvp = $i['rsvp'];
         $project = Meetings::project($m);
         $series = Meetings::series($m);
-        echo view('meetings/show', compact('m', 'agenda', 'requests', 'invitees', 'byPoint', 'canManage', 'isHost', 'isInvitee', 'myRsvp', 'project', 'series') + ['title' => $m['title']]);
+        $carried = Meetings::carriedForward($m);
+        $seen = $canManage && $m['status'] === 'completed' && !empty($m['minutes_locked_at']) ? Meetings::seenSummary($m) : null;
+        echo view('meetings/show', compact('m', 'agenda', 'requests', 'invitees', 'byPoint', 'canManage', 'isHost', 'isInvitee', 'myRsvp', 'project', 'series', 'carried', 'seen') + ['title' => $m['title']]);
     }
 
     public function complete(int $id): void
@@ -304,7 +306,7 @@ final class MeetingController
         if (!$canManage && !$isInvitee) abort(403);
         if ($m['status'] !== 'completed') { flash('error', 'Minutes open once the meeting is marked as over.'); redirect('meetings/' . $id); }
         self::requireOpenMinutes($m);
-        self::saveDiscussion($id, (array)($_POST['discussion'] ?? []));
+        self::saveDiscussion($id, (array)($_POST['discussion'] ?? []), (array)($_POST['decision'] ?? []));
         if ($canManage && isset($_POST['attendance_submitted'])) {
             $present = array_map('intval', (array)($_POST['attended'] ?? []));
             foreach (Meetings::invitees($id) as $i) DB::run('UPDATE meeting_invitees SET attended = ? WHERE meeting_id = ? AND user_id = ?', [in_array((int)$i['id'], $present, true) ? 1 : 0, $id, $i['id']]);
@@ -345,7 +347,7 @@ final class MeetingController
         $title = trim((string)input('title'));
         if ($title === '') redirect('meetings/' . $id);
         self::requireOpenMinutes($m);
-        self::saveDiscussion($id, (array)($_POST['discussion'] ?? []));
+        self::saveDiscussion($id, (array)($_POST['discussion'] ?? []), (array)($_POST['decision'] ?? []));
         $pos = (int)DB::value('SELECT COALESCE(MAX(position), 0) + 1 FROM agenda_items WHERE meeting_id = ?', [$id]);
         $pid = DB::insert('agenda_items', ['meeting_id' => $id, 'position' => $pos, 'title' => mb_substr($title, 0, 250), 'subpoints' => '[]', 'added_in_meeting' => 1, 'updated_by' => uid(), 'updated_at' => now_utc()]);
         flash('success', 'Point added to the minutes.');
@@ -415,7 +417,7 @@ final class MeetingController
         $pointId = (int)input('agenda_item_id');
         if (!DB::value('SELECT 1 FROM agenda_items ai WHERE ai.id = ? AND ai.meeting_id = ? AND ' . Meetings::ON_AGENDA, [$pointId, $id])) abort(404);
         // Keep any minutes typed on the page before the action was added
-        if (empty($m['minutes_locked_at'])) self::saveDiscussion($id, (array)($_POST['discussion'] ?? []));
+        if (empty($m['minutes_locked_at'])) self::saveDiscussion($id, (array)($_POST['discussion'] ?? []), (array)($_POST['decision'] ?? []));
         $owner = (int)input('owner_id');
         $inv = array_map('intval', array_column(array_filter(Access::members(), fn($u) => $u['status'] !== 'disabled'), 'id'));
         $title = trim((string)input('title'));
@@ -444,6 +446,7 @@ final class MeetingController
     public function mom(int $id): void
     {
         $m = Access::meeting($id);
+        Meetings::markMinutesSeen($m);
         echo self::momView('meetings/mom', $m, input('lang'), ['title' => 'Minutes: ' . $m['title']]);
     }
 
@@ -535,11 +538,17 @@ final class MeetingController
         return $m;
     }
 
-    private static function saveDiscussion(int $meetingId, array $discussion): void
+    private static function saveDiscussion(int $meetingId, array $discussion, array $decision = []): void
     {
         foreach ($discussion as $pointId => $text) {
-            DB::run('UPDATE agenda_items ai SET ai.discussion = ?, ai.updated_by = ?, ai.updated_at = UTC_TIMESTAMP() WHERE ai.id = ? AND ai.meeting_id = ? AND ' . Meetings::ON_AGENDA,
-                [mb_substr(trim((string)$text), 0, 20000), uid(), (int)$pointId, $meetingId]);
+            $sql = 'UPDATE agenda_items ai SET ai.discussion = ?, ai.updated_by = ?, ai.updated_at = UTC_TIMESTAMP()';
+            $params = [mb_substr(trim((string)$text), 0, 20000), uid()];
+            if (array_key_exists($pointId, $decision) && !is_array($decision[$pointId])) { // the decision is optional; a blank box clears it
+                $d = mb_substr(trim((string)$decision[$pointId]), 0, 5000);
+                $sql .= ', ai.decision = ?';
+                $params[] = $d === '' ? null : $d;
+            }
+            DB::run($sql . ' WHERE ai.id = ? AND ai.meeting_id = ? AND ' . Meetings::ON_AGENDA, array_merge($params, [(int)$pointId, $meetingId]));
         }
     }
 
@@ -573,7 +582,11 @@ final class MeetingController
         $organizerTitle = (string)DB::value('SELECT title FROM users WHERE id = ?', [$m['organizer_id']]);
         $orgName = (string)DB::value('SELECT name FROM organizations WHERE id = ?', [$m['org_id']]);
         $declined = array_values(array_filter(Meetings::requests($id), fn($r) => $r['request_status'] === 'declined'));
-        return ['t' => $t ?? fn($s) => (string)$s, 'm' => $m, 'agenda' => $agenda, 'declined' => $declined, 'invitees' => $invitees, 'actions' => $ordered, 'canManage' => Access::canManageMeeting($m), 'isHost' => Access::isHost($m),
+        $carried = Meetings::carriedForward($m);
+        $canManage = Access::canManageMeeting($m);
+        return ['carried' => $carried, 'seen' => $canManage && !empty($m['minutes_locked_at']) ? Meetings::seenSummary($m) : null,
+            'waText' => Meetings::minutesText($m, $agenda, $ordered, $invitees, $carried),
+            't' => $t ?? fn($s) => (string)$s, 'm' => $m, 'agenda' => $agenda, 'declined' => $declined, 'invitees' => $invitees, 'actions' => $ordered, 'canManage' => Access::canManageMeeting($m), 'isHost' => Access::isHost($m),
             'signature' => $signature, 'organizerTitle' => $organizerTitle, 'orgName' => $orgName, 'project' => Meetings::project($m)];
     }
 }

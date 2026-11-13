@@ -204,6 +204,7 @@ CREATE TABLE agenda_items (
   minutes_allotted SMALLINT UNSIGNED NOT NULL DEFAULT 0,
   subpoints       JSON NULL,                     -- array of strings
   discussion      TEXT NULL,                     -- minutes discussed
+  decision        TEXT NULL,                     -- what was decided on this point (feeds the decision log)
   added_in_meeting TINYINT(1) NOT NULL DEFAULT 0,
   -- Points an attendee asks to add: pending until the host approves or declines. NULL = regular agenda point.
   request_status  ENUM('pending','approved','declined') NULL,
@@ -236,6 +237,8 @@ CREATE TABLE actions (
   new_deadline    DATE NULL,
   status          ENUM('open','progress','review','done') NOT NULL DEFAULT 'open',  -- review = completed by the owner, waiting for approval
   submitted_at    DATETIME NULL,
+  seen_at         DATETIME NULL,                 -- first time the owner opened it
+  acked_at        DATETIME NULL,                 -- owner tapped "Got it"
   approved_by     INT UNSIGNED NULL,
   done_at         DATETIME NULL,
   last_due_reminder_on DATE NULL,
@@ -399,4 +402,14 @@ CREATE TABLE translations (
   translated  MEDIUMTEXT NOT NULL,
   created_at  DATETIME NOT NULL,
   UNIQUE KEY uq_translations (lang, src_hash)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Who has opened the saved minutes ("Seen by 4 of 6")
+CREATE TABLE minutes_seen (
+  meeting_id    INT UNSIGNED NOT NULL,
+  user_id       INT UNSIGNED NOT NULL,
+  first_seen_at DATETIME NOT NULL,
+  PRIMARY KEY (meeting_id, user_id),
+  CONSTRAINT fk_mseen_meeting FOREIGN KEY (meeting_id) REFERENCES meetings(id) ON DELETE CASCADE,
+  CONSTRAINT fk_mseen_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -145,7 +145,7 @@ final class Actions
     {
         if ((int)$to['id'] === (int)$a['owner_id']) return [false, $to['name'] . ' is already responsible for this item.'];
         $from = self::name((int)$a['owner_id']);
-        DB::update('actions', ['owner_id' => $to['id'], 'status' => $a['status'] === 'review' ? 'progress' : $a['status'], 'submitted_at' => null,
+        DB::update('actions', ['owner_id' => $to['id'], 'status' => $a['status'] === 'review' ? 'progress' : $a['status'], 'submitted_at' => null, 'seen_at' => null, 'acked_at' => null,
             'last_due_reminder_on' => null, 'last_overdue_alert_on' => null, 'updated_at' => now_utc()], ['id' => $a['id']]);
         self::systemComment((int)$a['id'], 'Reassigned from ' . $from . ' to ' . $to['name']);
         self::comment((int)$a['id'], $note);

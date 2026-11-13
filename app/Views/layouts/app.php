@@ -22,6 +22,7 @@ $nav = [
     ['tracker', 'All tasks', 'dash', $trackerOpen, false],
     ['meetings', 'Meetings', 'cal', null, false],
     ['projects', 'Projects', 'doc', null, false],
+    ['decisions', 'Decisions', 'check', null, false],
 ];
 if (is_admin()) $nav[] = ['reports', 'Reports', 'chart', null, false];
 $nav2 = [];

@@ -74,6 +74,23 @@ $requestsPanel = function () use ($m, $pending, $reviewed, $reqPill, $locked): s
       </div></div>
     <?php return (string)ob_get_clean();
 };
+/** Open tasks from earlier meetings of this series (or project), shown first so the host can review them. */
+$carriedPanel = function () use ($carried): string {
+    if (!$carried) return '';
+    $post = fn(int $id, string $a, string $label, string $cls = '') => '<form method="post" action="' . e(path('actions/' . $id . '/' . $a)) . '" class="inline">' . csrf_field()
+        . ($a === 'toggle' ? '<input type="hidden" name="done" value="1">' : '') . '<button class="btn sm ' . $cls . '" type="submit">' . $label . '</button></form>';
+    ob_start(); ?>
+    <div class="panel" id="carried"><div class="panel-h"><h2>Carried forward</h2><span class="faint small"><?= e(plural(count($carried), 'task')) ?> still open from earlier meetings</span></div>
+      <div class="list"><?php foreach ($carried as $x): ?>
+        <div class="li"><div style="min-width:0">
+          <a class="linkish title" href="<?= e(path('actions/' . $x['id'], ['from' => 'meetings'])) ?>"><?= e($x['title']) ?></a>
+          <div class="meta"><?= pri_pill($x['priority']) ?><?= Actions::statusPill($x) ?><?= person_chip(['id' => $x['owner_id'], 'name' => $x['owner_name']], 18) ?>
+            <span>from <a href="<?= e(path('meetings/' . $x['from_id'])) ?>"><?= e($x['from_title']) ?></a>, <?= e(fmt_date($x['from_date'], false)) ?></span></div></div>
+        <div class="row" style="gap:8px;flex-wrap:nowrap"><span class="mono small" style="white-space:nowrap"><?= e(fmt_date(Actions::effDeadline($x), false)) ?></span>
+          <?php if ($x['status'] === 'review' && \App\Services\Access::canApprove($x)): ?><?= $post((int)$x['id'], 'toggle', 'Approve', 'primary') ?>
+          <?php elseif ($x['status'] !== 'review' && \App\Services\Access::canEditAction($x)): ?><?= $post((int)$x['id'], 'toggle', 'Mark complete') ?><?php endif; ?></div></div>
+      <?php endforeach; ?></div></div>
+<?php return (string)ob_get_clean(); };
 ?>
 <div><a class="btn ghost sm" href="<?= e(path('meetings')) ?>"><?= icon('back', 14) ?>All meetings</a></div>
 <div class="head">
@@ -130,6 +147,8 @@ $requestsPanel = function () use ($m, $pending, $reviewed, $reqPill, $locked): s
 <div class="grid2">
   <div class="stack">
     <div class="banner"><div>Minutes and action items open once the meeting is over<?= $canManage ? '' : '. The host marks it as over' ?>. Invitees get an <b>Add minutes</b> button in their invite.</div></div>
+
+    <?= $carriedPanel() ?>
 
     <?php if ($isInvitee && !$isHost): ?>
     <div class="panel"><div class="panel-b row" style="justify-content:space-between">
@@ -226,9 +245,11 @@ $requestsPanel = function () use ($m, $pending, $reviewed, $reqPill, $locked): s
 
 <?php else: ?>
 <?php if ($locked): ?>
-<div class="banner" style="align-items:center;justify-content:space-between"><div><b>Minutes saved and locked</b> on <?= e(fmt_local($m['minutes_locked_at'], 'j M Y, g:i A')) ?>. <?= $isHost ? 'Unlock them if you need to make changes. You can still assign tasks to your team.' : 'Only the host (' . e($m['organizer_name']) . ') can unlock them for changes.' ?></div>
+<div class="banner" style="align-items:center;justify-content:space-between"><div><b>Minutes saved and locked</b> on <?= e(fmt_local($m['minutes_locked_at'], 'j M Y, g:i A')) ?>. <?= $isHost ? 'Unlock them if you need to make changes. You can still assign tasks to your team.' : 'Only the host (' . e($m['organizer_name']) . ') can unlock them for changes.' ?>
+    <?php if (!empty($seen) && $seen['total']): ?> <a href="<?= e(path('meetings/' . $m['id'] . '/mom')) ?>">Seen by <?= (int)$seen['seen'] ?> of <?= (int)$seen['total'] ?></a>.<?php endif; ?></div>
   <?php if ($isHost): ?><form method="post" action="<?= e(path('meetings/' . $m['id'] . '/minutes/unlock')) ?>" class="inline"><?= csrf_field() ?><button class="btn sm" type="submit">Edit minutes</button></form><?php endif; ?></div>
 <?php endif; ?>
+<?= $carriedPanel() ?>
 <?php if ($canManage && ($pending || $reviewed)): ?><?= $requestsPanel() ?><?php endif; ?>
 <?php if ($canManage || $isInvitee): ?><?= $attendancePanel() ?><?php endif; ?>
 <form method="post" action="<?= e(path('meetings/' . $m['id'] . '/minutes')) ?>" id="<?= $locked ? 'minutes-view' : 'minutes-form' ?>" class="stack">
@@ -245,6 +266,9 @@ $requestsPanel = function () use ($m, $pending, $reviewed, $reqPill, $locked): s
       <div class="point-b">
         <?php if ($p['details'] || $p['subpoints']): ?><div class="point-ctx"><?php if ($p['details']): ?><p><?= e($p['details']) ?></p><?php endif; ?><?php if ($p['subpoints']): ?><ul><?php foreach ($p['subpoints'] as $s): ?><li><?= e($s) ?></li><?php endforeach; ?></ul><?php endif; ?></div><?php endif; ?>
         <label class="f">Minutes discussed<textarea name="discussion[<?= (int)$p['id'] ?>]" data-point="<?= e($p['title']) ?>" placeholder="What was discussed and decided on this point" <?= !$locked && ($isInvitee || $canManage) ? '' : 'readonly' ?>><?= e($p['discussion']) ?></textarea></label>
+        <?php if (!$locked || trim((string)$p['decision']) !== ''): ?>
+        <label class="f">Decision <span class="hint">optional · listed in the decision log</span><textarea name="decision[<?= (int)$p['id'] ?>]" rows="2" maxlength="5000" placeholder="What was decided on this point" <?= !$locked && ($isInvitee || $canManage) ? '' : 'readonly' ?>><?= e($p['decision']) ?></textarea></label>
+        <?php endif; ?>
         <div class="stack" style="gap:6px"><div class="eyebrow">Action items (<?= count($pa) ?>)</div>
           <div class="actions-mini">
             <?php if (!$pa && !$isHost): ?><div class="act faint">No action items yet.</div><?php endif; ?>

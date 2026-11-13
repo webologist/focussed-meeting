@@ -33,6 +33,7 @@ $router->get('/actions/{id}', 'ActionController@show', ['auth']);
 $router->post('/actions/{id}/toggle', 'ActionController@toggle', ['auth']);
 $router->post('/actions/{id}/deadline', 'ActionController@deadline', ['auth']);
 $router->post('/actions/{id}/status', 'ActionController@status', ['auth']);
+$router->post('/actions/{id}/ack', 'ActionController@ack', ['auth']);
 $router->post('/actions/{id}/approve', 'ActionController@approve', ['auth']);
 $router->post('/actions/{id}/send-back', 'ActionController@sendBack', ['auth']);
 $router->post('/actions/{id}/reassign', 'ActionController@reassign', ['auth']);
@@ -69,6 +70,9 @@ $router->get('/meetings/{id}/print/personal', 'MeetingController@printPersonal',
 $router->get('/meetings/{id}/print/attendance', 'MeetingController@printAttendance', ['auth']);
 $router->get('/meetings/{id}/print/actions', 'MeetingController@printActions', ['auth']);
 $router->get('/meetings/{id}/ics', 'MeetingController@ics', ['auth']);
+
+// Decision log
+$router->get('/decisions', 'DecisionController@index', ['auth']);
 
 // Projects
 $router->get('/projects', 'ProjectController@index', ['auth']);

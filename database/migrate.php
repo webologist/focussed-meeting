@@ -67,6 +67,9 @@ $columns = [
     ['actions', 'project_id', 'INT UNSIGNED NULL AFTER org_id'],
     ['actions', 'submitted_at', 'DATETIME NULL AFTER status'],
     ['actions', 'approved_by', 'INT UNSIGNED NULL AFTER submitted_at'],
+    ['agenda_items', 'decision', 'TEXT NULL AFTER discussion'],
+    ['actions', 'seen_at', 'DATETIME NULL AFTER submitted_at'],
+    ['actions', 'acked_at', 'DATETIME NULL AFTER seen_at'],
     ['users', 'deleted_at', 'DATETIME NULL AFTER last_login_at'],
     ['projects', 'priority', "ENUM('high','medium','low') NOT NULL DEFAULT 'medium' AFTER status"],
 ];
