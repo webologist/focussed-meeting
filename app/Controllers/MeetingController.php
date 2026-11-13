@@ -431,6 +431,36 @@ final class MeetingController
         redirect('meetings/' . $id . '#point-' . $pointId);
     }
 
+    /** Attendance: the host marks, approves or declines; an invitee can ask the host to confirm they attended. */
+    public function attendance(int $id): void
+    {
+        $m = Access::meeting($id);
+        $canManage = Access::canManageMeeting($m);
+        $action = (string)input('action');
+        $target = (int)input('user_id');
+        if (!empty($m['minutes_locked_at'])) { flash('error', 'The minutes are locked, so attendance is fixed.'); redirect('meetings/' . $id . '#attendance'); }
+        $row = DB::one('SELECT 1 AS x FROM meeting_invitees WHERE meeting_id = ? AND user_id = ?', [$id, $target]);
+        if (!$row) { flash('error', 'That person is not invited to this meeting.'); redirect('meetings/' . $id . '#attendance'); }
+
+        if ($canManage && in_array($action, ['mark', 'unmark', 'approve', 'decline'], true)) {
+            if ($action === 'mark' || $action === 'approve') {
+                DB::run('UPDATE meeting_invitees SET attended = 1, attend_req = NULL WHERE meeting_id = ? AND user_id = ?', [$id, $target]);
+            } elseif ($action === 'unmark') {
+                DB::run('UPDATE meeting_invitees SET attended = 0, attend_req = NULL WHERE meeting_id = ? AND user_id = ?', [$id, $target]);
+            } else {
+                DB::run("UPDATE meeting_invitees SET attended = 0, attend_req = 'declined' WHERE meeting_id = ? AND user_id = ?", [$id, $target]);
+                if ($target !== uid()) Notifier::inApp($target, 'Your attendance for "' . $m['title'] . '" was not approved.', 'meetings/' . $id);
+            }
+            Audit::log('meeting.attendance_' . $action, 'meeting', $id);
+        } elseif ($action === 'request' && $target === uid() && (int)$m['organizer_id'] !== uid()) {
+            DB::run("UPDATE meeting_invitees SET attend_req = 'pending' WHERE meeting_id = ? AND user_id = ? AND attended = 0", [$id, $target]);
+            Notifier::inApp((int)$m['organizer_id'], user()['name'] . ' says they attended "' . $m['title'] . '". Please confirm.', 'meetings/' . $id);
+        } else {
+            abort(403);
+        }
+        redirect('meetings/' . $id . '#attendance');
+    }
+
     public function rsvp(int $id): void
     {
         $m = Access::meeting($id);
