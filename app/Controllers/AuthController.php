@@ -118,6 +118,7 @@ final class AuthController
     {
         $email = mb_strtolower((string)input('email'));
         $u = DB::one("SELECT * FROM users WHERE email = ? AND status = 'active'", [$email]);
+        if (!$u || Auth::throttled($email)) logger('Password reset not sent', ['email' => $email, 'reason' => $u ? 'throttled' : 'no active user']);
         if ($u && !Auth::throttled($email)) {
             Auth::recordFailure($email); // also rate-limits reset emails
             $token = self::issueToken((int)$u['id'], 'reset', 3600);

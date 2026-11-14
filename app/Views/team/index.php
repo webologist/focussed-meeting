@@ -20,6 +20,7 @@ $nu = $_SESSION['_team_new'] ?? []; unset($_SESSION['_team_new']);
   </div></div></form>
 <?php endif; ?>
 
+<?php if (is_admin()): ?>
 <form class="panel" method="post" action="<?= e(path('team/create')) ?>" id="create-user" autocomplete="off"><?= csrf_field() ?>
   <div class="panel-h"><h2>Create a user with a password</h2><span class="faint small">They can sign in straight away, no email needed</span></div>
   <div class="panel-b stack">
@@ -36,6 +37,7 @@ $nu = $_SESSION['_team_new'] ?? []; unset($_SESSION['_team_new']);
     <div class="row"><button class="btn primary" type="submit"><?= icon('plus', 15) ?>Create user</button><span class="faint small">Copy the password before you save. It isn’t shown again, and you can set a new one later.</span></div>
   </div>
 </form>
+<?php endif; ?>
 
 <div class="panel"><div class="panel-h"><h2>Members</h2><span class="faint small"><?= count($admins) ?> admin<?= count($admins) === 1 ? '' : 's' ?></span></div>
   <div class="tbl-wrap"><table class="compact" style="min-width:640px"><thead><tr><th>Member</th><th>Email</th><th class="num">Open items</th><th>Role</th><?php if (is_admin()): ?><th></th><?php endif; ?></tr></thead><tbody>

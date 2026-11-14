@@ -65,6 +65,7 @@ final class Notifier
                 WhatsApp::send((int)$m['org_id'], $m['to_address'], (string)$m['body_text']);
             }
             DB::run('UPDATE outbox SET status = "sent", sent_at = UTC_TIMESTAMP(), attempts = attempts + 1, last_error = NULL WHERE id = ?', [$outboxId]);
+            logger('Email sent', ['outbox' => $outboxId, 'to' => $m['to_address']]);
             return true;
         } catch (\Throwable $e) {
             DB::run('UPDATE outbox SET status = IF(attempts + 1 >= 5, "failed", "pending"), attempts = attempts + 1, last_error = ? WHERE id = ?', [mb_substr($e->getMessage(), 0, 490), $outboxId]);

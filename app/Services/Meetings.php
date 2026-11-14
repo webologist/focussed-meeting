@@ -137,7 +137,7 @@ final class Meetings
 
     public static function invitees(int $meetingId): array
     {
-        return DB::all('SELECT u.id, u.name, u.email, u.phone, u.title, u.status, i.attended, i.rsvp FROM meeting_invitees i JOIN users u ON u.id = i.user_id WHERE i.meeting_id = ? ORDER BY u.name', [$meetingId]);
+        return DB::all('SELECT u.id, u.name, u.email, u.phone, u.title, u.status, i.attended, i.attend_req, i.rsvp FROM meeting_invitees i JOIN users u ON u.id = i.user_id WHERE i.meeting_id = ? ORDER BY u.name', [$meetingId]);
     }
 
     public static function project(array $m): ?array

@@ -236,6 +236,29 @@ final class MeetingController
         redirect('meetings/' . $id);
     }
 
+    /** The host deletes a meeting for good: agenda, invitees, minutes, action items, notes and their uploaded files go with it. Other meetings of a series stay. */
+    public function destroy(int $id): void
+    {
+        $m = Access::meeting($id);
+        if (!Access::isHost($m)) abort(403);
+        $files = DB::all('SELECT ni.stored_name FROM note_images ni JOIN action_notes n ON n.id = ni.note_id JOIN actions a ON a.id = n.action_id WHERE a.meeting_id = ?', [$id]);
+        $invitees = Meetings::invitees($id);
+        DB::transaction(function () use ($id, $m) {
+            if ((int)$m['series_id'] === $id) { // the first meeting of a series carries the series id: hand it to the next one
+                $next = DB::value('SELECT id FROM meetings WHERE series_id = ? AND id <> ? ORDER BY meeting_date, start_time LIMIT 1', [$id, $id]);
+                if ($next) DB::run('UPDATE meetings SET series_id = ? WHERE series_id = ? AND id <> ?', [$next, $id, $id]);
+            }
+            DB::delete('meetings', ['id' => $id, 'org_id' => org_id()]);
+        });
+        foreach ($files as $f) @unlink(STORAGE_PATH . '/uploads/' . org_id() . '/' . basename($f['stored_name']));
+        Audit::log('meeting.deleted', 'meeting', $id, ['title' => $m['title']]);
+        if ($m['status'] === 'scheduled') {
+            foreach ($invitees as $i) if ((int)$i['id'] !== uid()) Notifier::inApp((int)$i['id'], 'The meeting "' . $m['title'] . '" on ' . fmt_date($m['meeting_date']) . ' was deleted by the host.', 'meetings');
+        }
+        flash('success', 'Meeting deleted.');
+        redirect('meetings');
+    }
+
     public function cancel(int $id): void
     {
         $m = Access::meeting($id);
@@ -452,7 +475,7 @@ final class MeetingController
                 if ($target !== uid()) Notifier::inApp($target, 'Your attendance for "' . $m['title'] . '" was not approved.', 'meetings/' . $id);
             }
             Audit::log('meeting.attendance_' . $action, 'meeting', $id);
-        } elseif ($action === 'request' && $target === uid() && (int)$m['organizer_id'] !== uid()) {
+        } elseif ($action === 'request' && $target === uid() && (int)$m['organizer_id'] !== uid() && time() >= strtotime($m['starts_at_utc'] . ' UTC') - 15 * 60) { // same window as the button: from 15 minutes before the start
             DB::run("UPDATE meeting_invitees SET attend_req = 'pending' WHERE meeting_id = ? AND user_id = ? AND attended = 0", [$id, $target]);
             Notifier::inApp((int)$m['organizer_id'], user()['name'] . ' says they attended "' . $m['title'] . '". Please confirm.', 'meetings/' . $id);
         } else {

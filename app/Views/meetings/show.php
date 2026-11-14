@@ -118,6 +118,7 @@ $carriedPanel = function () use ($carried): string {
         <a href="<?= e(path('meetings/' . $m['id'] . '/print/actions')) ?>" target="_blank" rel="noopener">Action items</a>
         <?php endif; ?>
       </div></details>
+    <form method="post" action="<?= e(path('meetings/' . $m['id'] . '/delete')) ?>" class="inline"><?= csrf_field() ?><button class="btn" type="submit" data-confirm="Delete this meeting for good? Its agenda, minutes, action items and notes are removed and cannot be recovered.">Delete meeting</button></form>
     <?php endif; ?>
     <?php if ($isOver): ?>
       <a class="btn primary" href="<?= e(path('meetings/' . $m['id'] . '/mom')) ?>"><?= icon('doc', 15) ?>Minutes of meeting</a>
@@ -134,7 +135,7 @@ $carriedPanel = function () use ($carried): string {
       <?php else: ?>
       <form method="post" action="<?= e(path('meetings/' . $m['id'] . '/cancel')) ?>" class="inline"><?= csrf_field() ?><button class="btn" type="submit" data-confirm="Cancel this meeting and notify all invitees?">Cancel meeting</button></form>
       <?php endif; ?>
-      <form method="post" action="<?= e(path('meetings/' . $m['id'] . '/complete')) ?>" class="inline"><?= csrf_field() ?><button class="btn primary" type="submit">Meeting is over, add minutes</button></form>
+      <?php if (time() >= strtotime($m['starts_at_utc'] . ' UTC')): ?><form method="post" action="<?= e(path('meetings/' . $m['id'] . '/complete')) ?>" class="inline"><?= csrf_field() ?><button class="btn primary" type="submit">Meeting is over, add minutes</button></form><?php endif; ?>
     <?php endif; ?>
   </div>
 </div>

@@ -48,7 +48,8 @@ final class Router
                     break;
                 case 'auth':
                     if (!Auth::check()) {
-                        $_SESSION['_intended'] = $_SERVER['REQUEST_URI'] ?? '';
+                        $uri = $_SERVER['REQUEST_URI'] ?? '';
+                        if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET' && !str_contains($uri, '/notifications/poll')) $_SESSION['_intended'] = $uri; // never send a person back to a background poll or a POST-only URL
                         redirect('login');
                     }
                     if (config('app.require_email_verification') && empty(Auth::user()['email_verified_at'])) redirect('verify-email');
