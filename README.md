@@ -90,3 +90,6 @@ database/       schema.sql and install.php
 public/         web root: index.php, assets
 storage/        uploads, logs, sessions (not web-accessible)
 ```
+
+## Install on a phone (web app)
+Open `/install.html` on the phone: choose **team member** (`install-user.html`) or **company admin** (`install-admin.html`), then tap Install (Android Chrome) or Share > Add to Home Screen (iPhone). Needs HTTPS. The service worker (`public/sw.js`) caches only an offline page, never meeting data.

@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Install MeetFlow Admin</title>
+<link rel="manifest" href="manifest-admin.webmanifest">
+<meta name="theme-color" content="#0B3B37">
+<link rel="apple-touch-icon" href="pwa/icon-admin-192.png">
+<style>
+body{margin:0;font-family:system-ui,sans-serif;background:#F5F6F3;color:#14211E;display:flex;min-height:100vh;align-items:center;justify-content:center;padding:24px;box-sizing:border-box}
+.c{max-width:360px;text-align:center}
+img{width:96px;height:96px;border-radius:22px}
+h1{font-size:24px;margin:16px 0 6px}
+p{color:#51615C;line-height:1.5;margin:0 0 16px}
+button,.b{display:block;width:100%;box-sizing:border-box;min-height:48px;border:0;border-radius:12px;background:#0F766E;color:#fff;font-weight:700;font-size:16px;text-decoration:none;line-height:48px;margin-top:10px}
+.b.o{background:#fff;color:#0B5F58;border:1.5px solid #0F766E;line-height:45px}
+a.s{display:inline-block;margin-top:20px;color:#0B5F58;font-size:14px}
+#ios{display:none;background:#fff;border:1px solid #E1E6E1;border-radius:12px;padding:12px;font-size:14px;text-align:left}
+</style>
+</head>
+<body>
+<div class="c">
+<img src="pwa/icon-admin-192.png" alt="">
+<h1>Install MeetFlow Admin</h1>
+<p>For company admins: team, reports, integrations and approvals.</p>
+<button id="install" hidden>Install app</button>
+<div id="ios">On iPhone: tap <b>Share</b>, then <b>Add to Home Screen</b>.</div>
+<p id="hint" style="font-size:14px">On Android Chrome, open the menu and choose <b>Install app</b> if the button does not appear.</p>
+<a class="b o" href="team">Open in browser</a>
+<a href="install-user.html">Not an admin? Install the regular app</a>
+</div>
+<script>
+var ev=null,btn=document.getElementById('install');
+if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').catch(function(){});}
+window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();ev=e;btn.hidden=false;document.getElementById('hint').hidden=true;});
+btn.addEventListener('click',function(){if(ev){ev.prompt();ev=null;btn.hidden=true;}});
+window.addEventListener('appinstalled',function(){btn.hidden=true;document.getElementById('hint').textContent='Installed. Open it from your home screen.';});
+if(/iphone|ipad/i.test(navigator.userAgent)){document.getElementById('ios').style.display='block';document.getElementById('hint').hidden=true;}
+</script>
+</body>
+</html>
